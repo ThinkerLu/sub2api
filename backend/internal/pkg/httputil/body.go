@@ -83,7 +83,10 @@ func ReadRequestBodyWithPrealloc(req *http.Request) ([]byte, error) {
 		}
 	}
 
-	buf := bytes.NewBuffer(make([]byte, 0, capHint))
+	// ReadFrom needs MinRead spare bytes to check EOF. Without this slack,
+	// an exactly full buffer is doubled merely to discover that the body ended.
+	// Keep the existing 1 MiB speculative cap; do not trust a large Content-Length.
+	buf := bytes.NewBuffer(make([]byte, 0, capHint+bytes.MinRead))
 	if _, err := io.Copy(buf, req.Body); err != nil {
 		return nil, err
 	}
