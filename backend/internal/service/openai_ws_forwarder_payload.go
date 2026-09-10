@@ -752,16 +752,56 @@ func setOpenAIWSPayloadInputSequence(
 	if !fullInputExists {
 		return payload, nil
 	}
-	// Preserve [] vs null semantics when input exists but is empty.
-	inputForMarshal := fullInput
-	if inputForMarshal == nil {
-		inputForMarshal = []json.RawMessage{}
+	if !json.Valid(payload) || !parseRawJSONView(payload).IsObject() {
+		return nil, errors.New("websocket payload must be a JSON object")
 	}
-	inputRaw, marshalErr := json.Marshal(inputForMarshal)
-	if marshalErr != nil {
-		return nil, marshalErr
+	inputBytes := 2 // Preserve [] rather than null for an empty sequence.
+	for i, item := range fullInput {
+		if item != nil && !json.Valid(item) {
+			return nil, errors.New("invalid JSON in websocket replay input")
+		}
+		if i > 0 {
+			inputBytes++
+		}
+		if item == nil {
+			inputBytes += len("null")
+		} else {
+			inputBytes += len(item)
+		}
 	}
-	return sjson.SetRawBytes(payload, "input", inputRaw)
+	// Match sjson's first-key replacement semantics, while writing retained
+	// immutable history directly into one correctly sized request buffer.
+	input := gjson.Get(openAIWSPayloadStringView(payload), "input")
+	var out bytes.Buffer
+	out.Grow(len(payload) - len(input.Raw) + inputBytes + 16)
+	if input.Exists() {
+		out.Write(payload[:input.Index])
+	} else {
+		out.Write(payload[:bytes.LastIndexByte(payload, '}')])
+		prefix := bytes.TrimSpace(out.Bytes())
+		if prefix[len(prefix)-1] != '{' {
+			out.WriteByte(',')
+		}
+		out.WriteString(`"input":`)
+	}
+	out.WriteByte('[')
+	for i, item := range fullInput {
+		if i > 0 {
+			out.WriteByte(',')
+		}
+		if item == nil {
+			out.WriteString("null")
+		} else {
+			out.Write(item)
+		}
+	}
+	out.WriteByte(']')
+	if input.Exists() {
+		out.Write(payload[input.Index+len(input.Raw):])
+	} else {
+		out.Write(payload[bytes.LastIndexByte(payload, '}'):])
+	}
+	return out.Bytes(), nil
 }
 
 func buildOpenAIWSCurrentTurnRetryPayload(
