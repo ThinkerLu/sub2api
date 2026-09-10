@@ -16,6 +16,12 @@ func normalizeOpenAIResponsesLegacyIngress(body []byte) ([]byte, bool, error) {
 		return body, false, nil
 	}
 
+	// Native Responses requests need no legacy rewrite. Validate without
+	// materializing the opaque input; ambiguous aliases use the original path.
+	if openAIResponsesHasNoLegacyAliases(body) {
+		return body, false, nil
+	}
+
 	var request map[string]any
 	if err := decodeOpenAIJSONUseNumber(body, &request); err != nil {
 		return body, false, fmt.Errorf("normalize legacy Responses ingress: %w", err)
