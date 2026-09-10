@@ -79,7 +79,8 @@ func needsOpenAIResponsesClientToolAdaptation(body []byte) bool {
 		}
 		return !needsAdaptation
 	}
-	visit(gjson.ParseBytes(body))
+	// The recursive scan is synchronous; no result escapes or mutates body.
+	visit(parseRawJSONView(body))
 	return needsAdaptation
 }
 
