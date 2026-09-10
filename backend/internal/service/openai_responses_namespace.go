@@ -169,8 +169,21 @@ func stripOpenAIResponsesInputNamespaces(body []byte, keepToolCallNamespaces boo
 	if !bytes.Contains(body, []byte(`"namespace"`)) {
 		return body, nil
 	}
-	input := gjson.GetBytes(body, "input")
+	input := parseRawJSONView(body).Get("input")
 	if !input.IsArray() {
+		return body, nil
+	}
+
+	needsStrip := func(item gjson.Result) bool {
+		return item.IsObject() && item.Get("namespace").Exists() &&
+			(!keepToolCallNamespaces || !isOpenAIResponsesToolCallItemType(item.Get("type").String()))
+	}
+	needed := false
+	input.ForEach(func(_, item gjson.Result) bool {
+		needed = needsStrip(item)
+		return !needed
+	})
+	if !needed {
 		return body, nil
 	}
 
@@ -185,18 +198,19 @@ func stripOpenAIResponsesInputNamespaces(body []byte, keepToolCallNamespaces boo
 			_ = rebuilt.WriteByte(',')
 		}
 		first = false
-		itemBody := []byte(item.Raw)
 		// 先判存在再判类型：长历史里绝大多数是 message/reasoning 等不带 namespace
 		// 的项，这样它们无需再扫一次 type。
-		if item.IsObject() && item.Get("namespace").Exists() &&
-			(!keepToolCallNamespaces || !isOpenAIResponsesToolCallItemType(item.Get("type").String())) {
-			itemBody, stripErr = sjson.DeleteBytes(itemBody, "namespace")
+		if needsStrip(item) {
+			var itemBody []byte
+			itemBody, stripErr = sjson.DeleteBytes([]byte(item.Raw), "namespace")
 			if stripErr != nil {
 				return false
 			}
 			changed = true
+			_, _ = rebuilt.Write(itemBody)
+		} else {
+			_, _ = rebuilt.WriteString(item.Raw)
 		}
-		_, _ = rebuilt.Write(itemBody)
 		return true
 	})
 	_ = rebuilt.WriteByte(']')
