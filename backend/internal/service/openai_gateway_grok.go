@@ -542,9 +542,9 @@ func patchGrokResponsesBodyBase(body []byte, upstreamModel string) ([]byte, erro
 	if !json.Valid(body) {
 		return nil, fmt.Errorf("invalid json request body")
 	}
-	// sjson may reuse the input backing array; keep the caller's request bytes
-	// unchanged because the same body can be inspected for billing/retry paths.
-	out, err := sjson.SetBytes(append([]byte(nil), body...), "model", upstreamModel)
+	// SetBytes passes nil options: ReplaceInPlace is disabled, so sjson owns
+	// the output. A defensive input clone would copy the entire request twice.
+	out, err := sjson.SetBytes(body, "model", upstreamModel)
 	if err != nil {
 		return nil, err
 	}
