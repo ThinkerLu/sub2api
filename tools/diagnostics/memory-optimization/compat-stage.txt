@@ -1,0 +1,49 @@
+2026/09/10 19:56:26 Timezone initialized: UTC (UTC offset: +00:00)
+goos: darwin
+goarch: arm64
+pkg: github.com/Wei-Shaw/sub2api/internal/service
+cpu: Apple M2 Pro
+BenchmarkMemoryOptimization/WSRawField8MiB-10         	      40	   5804632 ns/op	      75 B/op	       1 allocs/op
+BenchmarkMemoryOptimization/WSRawField8MiB-10         	      43	   5624544 ns/op	      73 B/op	       1 allocs/op
+BenchmarkMemoryOptimization/WSRawField8MiB-10         	      40	   5718277 ns/op	      67 B/op	       1 allocs/op
+BenchmarkMemoryOptimization/WSReplayWrite8MiB-10      	      40	   6241855 ns/op	 8397124 B/op	       2 allocs/op
+BenchmarkMemoryOptimization/WSReplayWrite8MiB-10      	      52	   4310474 ns/op	 8397129 B/op	       2 allocs/op
+BenchmarkMemoryOptimization/WSReplayWrite8MiB-10      	      54	   4512693 ns/op	 8397137 B/op	       2 allocs/op
+BenchmarkMemoryOptimization/WSReplayCompare8MiB-10    	       9	  23625546 ns/op	     194 B/op	       0 allocs/op
+BenchmarkMemoryOptimization/WSReplayCompare8MiB-10    	      10	  26178925 ns/op	     175 B/op	       0 allocs/op
+BenchmarkMemoryOptimization/WSReplayCompare8MiB-10    	      10	  22722600 ns/op	     175 B/op	       0 allocs/op
+BenchmarkMemoryOptimization/HTTPGrokPatch8MiB-10      	       2	 119063104 ns/op	167875504 B/op	     267 allocs/op
+BenchmarkMemoryOptimization/HTTPGrokPatch8MiB-10      	       2	 116923208 ns/op	167877488 B/op	     261 allocs/op
+BenchmarkMemoryOptimization/HTTPGrokPatch8MiB-10      	       2	 146214896 ns/op	167874984 B/op	     258 allocs/op
+BenchmarkMemoryOptimizationImageScan-10               	       8	  34298359 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMemoryOptimizationImageScan-10               	       8	  25713724 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMemoryOptimizationImageScan-10               	       9	  24234523 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMemoryPassthrough/Identity8MiB-10            	      31	   7183113 ns/op	 8401042 B/op	      52 allocs/op
+BenchmarkMemoryPassthrough/Identity8MiB-10            	      40	   6074352 ns/op	 8401413 B/op	      53 allocs/op
+BenchmarkMemoryPassthrough/Identity8MiB-10            	      36	   5733404 ns/op	 8401436 B/op	      53 allocs/op
+BenchmarkMemoryPassthrough/Compatibility8MiB-10       	       2	 113719729 ns/op	41958524 B/op	      84 allocs/op
+BenchmarkMemoryPassthrough/Compatibility8MiB-10       	       2	 117674458 ns/op	41961276 B/op	      95 allocs/op
+BenchmarkMemoryPassthrough/Compatibility8MiB-10       	       2	 118334188 ns/op	41961276 B/op	      95 allocs/op
+BenchmarkMemoryPassthrough/CompactionNoop8MiB-10      	      15	  14848508 ns/op	41959062 B/op	      85 allocs/op
+BenchmarkMemoryPassthrough/CompactionNoop8MiB-10      	      14	  15647104 ns/op	41959328 B/op	      86 allocs/op
+BenchmarkMemoryPassthrough/CompactionNoop8MiB-10      	      13	  16491555 ns/op	41960090 B/op	      89 allocs/op
+BenchmarkMemoryPassthrough/ModelCandidates8MiB-10     	      48	   4524424 ns/op	16793666 B/op	       4 allocs/op
+BenchmarkMemoryPassthrough/ModelCandidates8MiB-10     	      56	   4313740 ns/op	16793666 B/op	       4 allocs/op
+BenchmarkMemoryPassthrough/ModelCandidates8MiB-10     	      58	   4320754 ns/op	16793665 B/op	       4 allocs/op
+PASS
+ok  	github.com/Wei-Shaw/sub2api/internal/service	6.475s
+goos: darwin
+goarch: arm64
+pkg: github.com/Wei-Shaw/sub2api/internal/pkg/httputil
+cpu: Apple M2 Pro
+BenchmarkMemoryOptimizationHTTPRead/1MiB-10         	    1743	    129661 ns/op	8087.06 MB/s	 1056910 B/op	       5 allocs/op
+BenchmarkMemoryOptimizationHTTPRead/1MiB-10         	    2793	     83534 ns/op	12552.72 MB/s	 1056897 B/op	       5 allocs/op
+BenchmarkMemoryOptimizationHTTPRead/1MiB-10         	    3342	     91274 ns/op	11488.19 MB/s	 1056899 B/op	       5 allocs/op
+BenchmarkMemoryOptimizationHTTPRead/8MiB-10         	     256	    887000 ns/op	9457.28 MB/s	15794312 B/op	       8 allocs/op
+BenchmarkMemoryOptimizationHTTPRead/8MiB-10         	     286	    773014 ns/op	10851.82 MB/s	15794318 B/op	       8 allocs/op
+BenchmarkMemoryOptimizationHTTPRead/8MiB-10         	     304	    726019 ns/op	11554.26 MB/s	15794313 B/op	       8 allocs/op
+BenchmarkMemoryOptimizationHTTPRead/16MiB-10        	     153	   1520783 ns/op	11031.96 MB/s	32637105 B/op	       9 allocs/op
+BenchmarkMemoryOptimizationHTTPRead/16MiB-10        	     159	   1480103 ns/op	11335.17 MB/s	32637067 B/op	       9 allocs/op
+BenchmarkMemoryOptimizationHTTPRead/16MiB-10        	     166	   1427810 ns/op	11750.31 MB/s	32637062 B/op	       9 allocs/op
+PASS
+ok  	github.com/Wei-Shaw/sub2api/internal/pkg/httputil	2.212s

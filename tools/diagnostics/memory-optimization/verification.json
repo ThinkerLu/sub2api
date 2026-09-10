@@ -1,0 +1,77 @@
+{
+  "production_revision": "0fcff2b03",
+  "allocation_test_layout_revision": "3e68afd75",
+  "baseline": "v0.2.4 (5de5e2bed)",
+  "toolchain": "go1.27.0 darwin/arm64",
+  "normal_build_allocation_budgets": "passed; allocation-budget-tests.txt",
+  "race_allocation_budgets": "excluded with !race build tag; ownership/semantic tests still run",
+  "runs": {
+    "regression-final.jsonl": {
+      "test_nodes_including_subtests": {
+        "pass": 8029,
+        "skip": 3
+      },
+      "top_level_tests_passed": 4337,
+      "packages": [
+        {
+          "package": "github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel",
+          "status": "pass",
+          "elapsed_seconds": 0.037
+        },
+        {
+          "package": "github.com/Wei-Shaw/sub2api/internal/pkg/httputil",
+          "status": "pass",
+          "elapsed_seconds": 0.052
+        },
+        {
+          "package": "github.com/Wei-Shaw/sub2api/internal/service/openai_ws_v2",
+          "status": "pass",
+          "elapsed_seconds": 3.041
+        },
+        {
+          "package": "github.com/Wei-Shaw/sub2api/internal/handler",
+          "status": "pass",
+          "elapsed_seconds": 38.199
+        },
+        {
+          "package": "github.com/Wei-Shaw/sub2api/internal/service",
+          "status": "pass",
+          "elapsed_seconds": 125.61
+        }
+      ]
+    },
+    "race.jsonl": {
+      "test_nodes_including_subtests": {
+        "pass": 103
+      },
+      "top_level_tests_passed": 88,
+      "packages": [
+        {
+          "package": "github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel",
+          "status": "pass",
+          "elapsed_seconds": 1.063
+        },
+        {
+          "package": "github.com/Wei-Shaw/sub2api/internal/pkg/httputil",
+          "status": "pass",
+          "elapsed_seconds": 1.088
+        },
+        {
+          "package": "github.com/Wei-Shaw/sub2api/internal/handler",
+          "status": "pass",
+          "elapsed_seconds": 1.427
+        },
+        {
+          "package": "github.com/Wei-Shaw/sub2api/internal/service/openai_ws_v2",
+          "status": "pass",
+          "elapsed_seconds": 4.09
+        },
+        {
+          "package": "github.com/Wei-Shaw/sub2api/internal/service",
+          "status": "pass",
+          "elapsed_seconds": 23.885
+        }
+      ]
+    }
+  }
+}

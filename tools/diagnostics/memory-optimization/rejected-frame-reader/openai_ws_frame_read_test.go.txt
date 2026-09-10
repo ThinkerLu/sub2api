@@ -1,0 +1,116 @@
+package service
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	coderws "github.com/coder/websocket"
+	"github.com/stretchr/testify/require"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"testing/iotest"
+	"time"
+)
+
+func TestWSFrameBodyRead(t *testing.T) {
+	for _, size := range []int{0, 1, 511, 512, 513, 1024, 32768, 8 << 20, (8 << 20) + 1, 12 << 20} {
+		body := bytes.Repeat([]byte("x"), size)
+		for _, r := range []io.Reader{bytes.NewReader(body), iotest.HalfReader(bytes.NewReader(body)), iotest.DataErrReader(bytes.NewReader(body))} {
+			got, err := readOpenAIWSFrameBody(r)
+			require.NoError(t, err)
+			require.Equal(t, body, got)
+			if size > 1<<20 {
+				require.LessOrEqual(t, cap(got)-len(got), len(got)/4, "excess retained slack")
+			}
+			if size == 8<<20 {
+				require.Equal(t, size, cap(got), "must not grow at EOF")
+			}
+		}
+	}
+	cause := errors.New("read failure")
+	got, err := readOpenAIWSFrameBody(io.MultiReader(strings.NewReader("partial"), iotest.ErrReader(cause)))
+	require.ErrorIs(t, err, cause)
+	require.Equal(t, "partial", string(got))
+}
+
+func TestWSFrameReadFragmentCompressionAndLimit(t *testing.T) {
+	for _, mode := range []coderws.CompressionMode{coderws.CompressionDisabled, coderws.CompressionContextTakeover} {
+		for _, limit := range []int64{1024, 1 << 20} {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			done := make(chan error, 1)
+			body := bytes.Repeat([]byte("frame-"), 10000)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := coderws.Accept(w, r, &coderws.AcceptOptions{CompressionMode: mode})
+				if err != nil {
+					done <- err
+					return
+				}
+				defer conn.CloseNow()
+				conn.SetReadLimit(limit)
+				typ, got, err := readOpenAIWSFrame(ctx, conn)
+				if limit < int64(len(body)) {
+					if err == nil {
+						err = errors.New("read limit ignored")
+					}
+					done <- err
+					return
+				}
+				if err == nil && (typ != coderws.MessageBinary || !bytes.Equal(got, body)) {
+					err = errors.New("fragment payload mismatch")
+				}
+				done <- err
+			}))
+			conn, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), &coderws.DialOptions{CompressionMode: mode})
+			require.NoError(t, err)
+			writer, err := conn.Writer(ctx, coderws.MessageBinary)
+			require.NoError(t, err)
+			for pos := 0; pos < len(body); pos += 1000 {
+				_, err = writer.Write(body[pos : pos+1000])
+				if err != nil {
+					break
+				}
+			}
+			_ = writer.Close()
+			err = <-done
+			if limit < int64(len(body)) {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			_ = conn.CloseNow()
+			server.Close()
+			cancel()
+		}
+	}
+}
+
+func BenchmarkMemoryPassthroughFrameRead(b *testing.B) {
+	for _, size := range []int{512, 8 << 20, (8 << 20) + 1, 12 << 20} {
+		body := bytes.Repeat([]byte("x"), size)
+		for _, optimized := range []bool{false, true} {
+			name := "legacy"
+			if optimized {
+				name = "doubling"
+			}
+			name += fmt.Sprintf("/%dB", size)
+			b.Run(name, func(b *testing.B) {
+				b.ReportAllocs()
+				for b.Loop() {
+					var err error
+					if optimized {
+						memoryOptimizationSink, err = readOpenAIWSFrameBody(bytes.NewReader(body))
+					} else {
+						memoryOptimizationSink, err = io.ReadAll(bytes.NewReader(body))
+					}
+					if err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		}
+	}
+}

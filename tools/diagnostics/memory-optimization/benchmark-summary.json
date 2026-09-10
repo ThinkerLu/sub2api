@@ -1,0 +1,158 @@
+{
+  "BenchmarkMemoryOptimization/WSRawField8MiB": {
+    "before": {
+      "B/op": 8397826.0,
+      "ns/op": 8192935.0,
+      "allocs/op": 9.0
+    },
+    "after": {
+      "B/op": 72.0,
+      "ns/op": 5628129.0,
+      "allocs/op": 1.0
+    },
+    "allocation_reduction_percent": 99.99914263524869
+  },
+  "BenchmarkMemoryOptimization/WSReplayWrite8MiB": {
+    "before": {
+      "B/op": 18747248.0,
+      "ns/op": 4714478.0,
+      "allocs/op": 10.0
+    },
+    "after": {
+      "B/op": 8397137.0,
+      "ns/op": 4317235.0,
+      "allocs/op": 2.0
+    },
+    "allocation_reduction_percent": 55.208695164218234
+  },
+  "BenchmarkMemoryOptimization/WSReplayCompare8MiB": {
+    "before": {
+      "B/op": 110772940.0,
+      "ns/op": 40385367.0,
+      "allocs/op": 116.0
+    },
+    "after": {
+      "B/op": 175.0,
+      "ns/op": 20956825.0,
+      "allocs/op": 0.0
+    },
+    "allocation_reduction_percent": 99.99984201917906
+  },
+  "BenchmarkMemoryOptimization/HTTPGrokPatch8MiB": {
+    "before": {
+      "B/op": 176278368.0,
+      "ns/op": 111850375.0,
+      "allocs/op": 272.0
+    },
+    "after": {
+      "B/op": 167877536.0,
+      "ns/op": 110707750.0,
+      "allocs/op": 261.0
+    },
+    "allocation_reduction_percent": 4.765662454964414
+  },
+  "BenchmarkMemoryOptimizationImageScan": {
+    "before": {
+      "B/op": 16793601.0,
+      "ns/op": 22217558.0,
+      "allocs/op": 2.0
+    },
+    "after": {
+      "B/op": 0.0,
+      "ns/op": 21689092.0,
+      "allocs/op": 0.0
+    },
+    "allocation_reduction_percent": 100.0
+  },
+  "BenchmarkMemoryPassthrough/Identity8MiB": {
+    "before": {
+      "B/op": 25198294.0,
+      "ns/op": 8149910.0,
+      "allocs/op": 61.0
+    },
+    "after": {
+      "B/op": 8401199.0,
+      "ns/op": 5851581.0,
+      "allocs/op": 52.0
+    },
+    "allocation_reduction_percent": 66.65965164149605
+  },
+  "BenchmarkMemoryPassthrough/Compatibility8MiB": {
+    "before": {
+      "B/op": 159468760.0,
+      "ns/op": 133823292.0,
+      "allocs/op": 279.0
+    },
+    "after": {
+      "B/op": 640.0,
+      "ns/op": 99467417.0,
+      "allocs/op": 4.0
+    },
+    "allocation_reduction_percent": 99.99959866747568
+  },
+  "BenchmarkMemoryPassthrough/CompactionNoop8MiB": {
+    "before": {
+      "B/op": 41959040.0,
+      "ns/op": 14788932.0,
+      "allocs/op": 85.0
+    },
+    "after": {
+      "B/op": 30.0,
+      "ns/op": 4174362.0,
+      "allocs/op": 0.0
+    },
+    "allocation_reduction_percent": 99.99992850170071
+  },
+  "BenchmarkMemoryPassthrough/ModelCandidates8MiB": {
+    "before": {
+      "B/op": 16793665.0,
+      "ns/op": 4225427.0,
+      "allocs/op": 4.0
+    },
+    "after": {
+      "B/op": 72.0,
+      "ns/op": 3557725.0,
+      "allocs/op": 3.0
+    },
+    "allocation_reduction_percent": 99.99957126690332
+  },
+  "BenchmarkMemoryOptimizationHTTPRead/1MiB": {
+    "before": {
+      "B/op": 3145874.0,
+      "ns/op": 168019.0,
+      "allocs/op": 6.0
+    },
+    "after": {
+      "B/op": 1056898.0,
+      "ns/op": 78246.0,
+      "allocs/op": 5.0
+    },
+    "allocation_reduction_percent": 66.40367668889473
+  },
+  "BenchmarkMemoryOptimizationHTTPRead/8MiB": {
+    "before": {
+      "B/op": 32505997.0,
+      "ns/op": 1246819.0,
+      "allocs/op": 9.0
+    },
+    "after": {
+      "B/op": 15794314.0,
+      "ns/op": 744113.0,
+      "allocs/op": 8.0
+    },
+    "allocation_reduction_percent": 51.41107654689072
+  },
+  "BenchmarkMemoryOptimizationHTTPRead/16MiB": {
+    "before": {
+      "B/op": 66060436.0,
+      "ns/op": 2466086.0,
+      "allocs/op": 10.0
+    },
+    "after": {
+      "B/op": 32637066.0,
+      "ns/op": 1437018.0,
+      "allocs/op": 9.0
+    },
+    "allocation_reduction_percent": 50.59513988069955
+  }
+}

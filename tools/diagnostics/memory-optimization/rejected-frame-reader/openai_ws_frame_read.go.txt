@@ -1,0 +1,67 @@
+package service
+
+import (
+	"context"
+	coderws "github.com/coder/websocket"
+	"io"
+)
+
+// Keep coder/websocket's framing, compression, read limit and cancellation.
+// Only change message accumulation: io.ReadAll grows large slices by about
+// 25%, repeatedly copying multi-megabyte frames. Doubling keeps cumulative
+// buffer allocation below twice the final capacity, without a session pool.
+func readOpenAIWSFrame(ctx context.Context, conn *coderws.Conn) (coderws.MessageType, []byte, error) {
+	typ, r, err := conn.Reader(ctx)
+	if err != nil {
+		return 0, nil, err
+	}
+	body, err := readOpenAIWSFrameBody(r)
+	return typ, body, err
+}
+
+func readOpenAIWSFrameBody(r io.Reader) ([]byte, error) {
+	body := make([]byte, 0, 512)
+	var probe [1]byte
+	for {
+		// Read one real byte before growing a full buffer. EOF must not double
+		// an exactly-full frame. Small messages retain the same 512-byte floor.
+		if len(body) == cap(body) {
+			n, err := r.Read(probe[:])
+			if n > 0 {
+				next := make([]byte, len(body)+1, 2*cap(body))
+				copy(next, body)
+				next[len(body)] = probe[0]
+				body = next
+			}
+			if err != nil {
+				if err == io.EOF {
+					err = nil
+					body = trimOpenAIWSFrameSlack(body)
+				}
+				return body, err
+			}
+			continue
+		}
+		n, err := r.Read(body[len(body):cap(body)])
+		body = body[:len(body)+n]
+		if err != nil {
+			if err == io.EOF {
+				err = nil
+				body = trimOpenAIWSFrameSlack(body)
+			}
+			return body, err
+		}
+	}
+}
+
+// A just-over-boundary frame must not retain almost twice its actual size
+// during a slow upstream turn. Compact only material (>1 MiB, >25%) slack.
+func trimOpenAIWSFrameSlack(body []byte) []byte {
+	spare := cap(body) - len(body)
+	if spare > 1<<20 && spare > len(body)/4 {
+		exact := make([]byte, len(body))
+		copy(exact, body)
+		return exact
+	}
+	return body
+}

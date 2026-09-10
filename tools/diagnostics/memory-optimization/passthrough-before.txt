@@ -1,0 +1,13 @@
+2026/09/10 19:41:55 Timezone initialized: UTC (UTC offset: +00:00)
+goos: darwin
+goarch: arm64
+pkg: github.com/Wei-Shaw/sub2api/internal/service
+cpu: Apple M2 Pro
+BenchmarkMemoryPassthrough/Identity8MiB-10         	      24	   8368839 ns/op	25201809 B/op	      68 allocs/op
+BenchmarkMemoryPassthrough/Identity8MiB-10         	      27	   8239978 ns/op	25201424 B/op	      67 allocs/op
+BenchmarkMemoryPassthrough/Identity8MiB-10         	      27	   8265063 ns/op	25201424 B/op	      67 allocs/op
+BenchmarkMemoryPassthrough/Compatibility8MiB-10    	       2	 133727875 ns/op	159463444 B/op	     263 allocs/op
+BenchmarkMemoryPassthrough/Compatibility8MiB-10    	       2	 132808166 ns/op	159468768 B/op	     279 allocs/op
+BenchmarkMemoryPassthrough/Compatibility8MiB-10    	       2	 133057562 ns/op	159466740 B/op	     270 allocs/op
+PASS
+ok  	github.com/Wei-Shaw/sub2api/internal/service	1.511s
