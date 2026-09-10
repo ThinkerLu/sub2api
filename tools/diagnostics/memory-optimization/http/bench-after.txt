@@ -1,0 +1,28 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/Wei-Shaw/sub2api/internal/handler
+cpu: Apple M2 Pro
+BenchmarkBootstrapImageContext-10    	      68	   3114511 ns/op	2693.42 MB/s	       0 B/op	       0 allocs/op
+BenchmarkBootstrapImageContext-10    	      78	   3104809 ns/op	2701.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkBootstrapImageContext-10    	      74	   3122059 ns/op	2686.91 MB/s	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/Wei-Shaw/sub2api/internal/handler	0.858s
+2026/09/10 20:27:23 Timezone initialized: UTC (UTC offset: +00:00)
+goos: darwin
+goarch: arm64
+pkg: github.com/Wei-Shaw/sub2api/internal/service
+cpu: Apple M2 Pro
+BenchmarkHTTPClientToolScan-10          	      14	  15211670 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPClientToolScan-10          	      15	  15116639 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPClientToolScan-10          	      15	  14992794 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPNamespaceNoChange-10       	      30	   7804149 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPNamespaceNoChange-10       	      30	   7781601 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPNamespaceNoChange-10       	      30	   7852604 ns/op	       0 B/op	       0 allocs/op
+BenchmarkImageCounterTextResponse-10    	       7	  29594167 ns/op	     192 B/op	       4 allocs/op
+BenchmarkImageCounterTextResponse-10    	       7	  29285762 ns/op	     192 B/op	       4 allocs/op
+BenchmarkImageCounterTextResponse-10    	       7	  29291994 ns/op	     192 B/op	       4 allocs/op
+BenchmarkBridgeImageBody-10             	      20	  10637290 ns/op	 8398984 B/op	      17 allocs/op
+BenchmarkBridgeImageBody-10             	      22	  10790888 ns/op	 8398691 B/op	      16 allocs/op
+BenchmarkBridgeImageBody-10             	      20	  10630956 ns/op	 8398672 B/op	      16 allocs/op
+PASS
+ok  	github.com/Wei-Shaw/sub2api/internal/service	3.285s

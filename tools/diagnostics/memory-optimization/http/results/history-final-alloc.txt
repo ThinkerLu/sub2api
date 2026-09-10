@@ -1,0 +1,59 @@
+File: http.test
+Type: alloc_space
+Time: 2026-09-11 04:30:03 CST
+Showing nodes accounting for 786.74MB, 99.16% of 793.37MB total
+Dropped 212 nodes (cum <= 3.97MB)
+      flat  flat%   sum%        cum   cum%
+         0     0%     0%   790.10MB 99.59%  net/http.(*conn).serve
+         0     0%     0%   790.03MB 99.58%  github.com/gin-gonic/gin.(*Context).Next (inline)
+         0     0%     0%   790.03MB 99.58%  github.com/gin-gonic/gin.(*Engine).ServeHTTP
+         0     0%     0%   790.03MB 99.58%  github.com/gin-gonic/gin.(*Engine).handleHTTPRequest
+         0     0%     0%   790.03MB 99.58%  net/http.serverHandler.ServeHTTP
+         0     0%     0%   787.77MB 99.29%  github.com/Wei-Shaw/sub2api/internal/handler.(*OpenAIGatewayHandler).Responses
+         0     0%     0%   787.77MB 99.29%  github.com/Wei-Shaw/sub2api/internal/handler.TestDiagnosticWSGateway.func4
+         0     0%     0%   579.56MB 73.05%  github.com/Wei-Shaw/sub2api/internal/handler.(*OpenAIGatewayHandler).Responses.func1
+         0     0%     0%   579.56MB 73.05%  github.com/Wei-Shaw/sub2api/internal/service.(*OpenAIGatewayService).Forward
+         0     0%     0%   418.40MB 52.74%  github.com/Wei-Shaw/sub2api/internal/service.(*OpenAIGatewayService).forwardOpenAIPassthrough
+         0     0%     0%   337.38MB 42.53%  encoding/json.(*Decoder).Decode
+         0     0%     0%   337.38MB 42.53%  github.com/Wei-Shaw/sub2api/internal/service.decodeOpenAIJSONUseNumber
+         0     0%     0%   256.07MB 32.28%  encoding/json/jsontext.(*Decoder).ReadValue (inline)
+         0     0%     0%   256.07MB 32.28%  encoding/json/jsontext.(*decoderState).ReadValue
+         0     0%     0%   256.07MB 32.28%  encoding/json/jsontext.(*decoderState).consumeArray
+         0     0%     0%   256.07MB 32.28%  encoding/json/jsontext.(*decoderState).consumeObject
+         0     0%     0%   256.07MB 32.28%  encoding/json/jsontext.(*decoderState).consumeString
+         0     0%     0%   256.07MB 32.28%  encoding/json/jsontext.(*decoderState).consumeValue
+  256.07MB 32.28% 32.28%   256.07MB 32.28%  encoding/json/jsontext.(*decoderState).fetch
+         0     0% 32.28%   168.89MB 21.29%  github.com/Wei-Shaw/sub2api/internal/service.normalizeOpenAIResponsesWebSocketCompatibilityBody
+         0     0% 32.28%   168.56MB 21.25%  github.com/Wei-Shaw/sub2api/internal/service.aliasOpenAIOAuthReservedToolNamesBody
+         0     0% 32.28%   166.81MB 21.03%  bytes.(*Buffer).grow
+  166.81MB 21.03% 53.30%   166.81MB 21.03%  bytes.growSlice
+   80.55MB 10.15% 63.45%   161.23MB 20.32%  github.com/Wei-Shaw/sub2api/internal/service.sanitizeOpenAIResponsesInputItemIDs
+         0     0% 63.45%   127.50MB 16.07%  github.com/Wei-Shaw/sub2api/internal/handler.readLenientJSONRequestBodyWithPrealloc
+         0     0% 63.45%   127.50MB 16.07%  github.com/Wei-Shaw/sub2api/internal/pkg/httputil.ReadLenientJSONRequestBodyWithPrealloc
+    1.01MB  0.13% 63.58%   127.50MB 16.07%  github.com/Wei-Shaw/sub2api/internal/pkg/httputil.ReadRequestBodyWithPrealloc
+         0     0% 63.58%   126.57MB 15.95%  io.Copy (inline)
+    0.08MB  0.01% 63.59%   126.57MB 15.95%  io.copyBuffer
+         0     0% 63.59%   126.49MB 15.94%  bytes.(*Buffer).ReadFrom
+         0     0% 63.59%   120.96MB 15.25%  github.com/tidwall/gjson.GetBytes (inline)
+  120.96MB 15.25% 78.84%   120.96MB 15.25%  github.com/tidwall/gjson.getBytes
+         0     0% 78.84%    81.31MB 10.25%  encoding/json/v2.Unmarshal
+         0     0% 78.84%    81.31MB 10.25%  encoding/json/v2.makeMapArshaler.func3
+         0     0% 78.84%    81.31MB 10.25%  encoding/json/v2.unmarshalDecode
+         0     0% 78.84%    81.25MB 10.24%  encoding/json/v2.makeInterfaceArshaler.func2
+         0     0% 78.84%    81.25MB 10.24%  encoding/json/v2.makeSliceArshaler.func3
+    0.06MB 0.0082% 78.85%    81.12MB 10.23%  encoding/json/v2.makeStringArshaler.func2
+         0     0% 78.85%    80.64MB 10.16%  github.com/Wei-Shaw/sub2api/internal/service.HasCompactionTriggerInInput
+   80.62MB 10.16% 89.01%    80.62MB 10.16%  github.com/tidwall/sjson.appendRawPaths
+         0     0% 89.01%    80.62MB 10.16%  github.com/tidwall/sjson.set
+   80.58MB 10.16% 99.16%    80.58MB 10.16%  encoding/json/v2.makeString
+         0     0% 99.16%    40.32MB  5.08%  bytes.(*Buffer).Grow (inline)
+         0     0% 99.16%    40.32MB  5.08%  github.com/Wei-Shaw/sub2api/internal/handler.(*OpenAIGatewayHandler).normalizeOpenAIResponsesCompactRequest
+         0     0% 99.16%    40.32MB  5.08%  github.com/Wei-Shaw/sub2api/internal/handler.isOpenAIRemoteCompactionV2Request
+         0     0% 99.16%    40.32MB  5.08%  github.com/Wei-Shaw/sub2api/internal/service.applyCodexAccountIdentityClientMetadataRaw
+         0     0% 99.16%    40.32MB  5.08%  github.com/Wei-Shaw/sub2api/internal/service.normalizeOpenAIPassthroughOAuthBody
+         0     0% 99.16%    40.32MB  5.08%  github.com/Wei-Shaw/sub2api/internal/service.replaceOpenAIJSONFirstFieldValues
+         0     0% 99.16%    40.32MB  5.08%  github.com/tidwall/sjson.SetRawBytes (inline)
+         0     0% 99.16%    40.32MB  5.08%  github.com/tidwall/sjson.SetRawBytesOptions
+         0     0% 99.16%    40.29MB  5.08%  github.com/tidwall/sjson.DeleteBytes
+         0     0% 99.16%    40.29MB  5.08%  github.com/tidwall/sjson.SetBytes (inline)
+         0     0% 99.16%    40.29MB  5.08%  github.com/tidwall/sjson.SetBytesOptions

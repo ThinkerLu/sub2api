@@ -1,0 +1,9 @@
+{
+  "source_thread": "01a08c38-70e1-7f23-ae04-d7131125e4a2",
+  "kind": "本地 rollout 实际图片和历史截断重建；非出站抓包；history 模式移除 reasoning，保留其余 response items",
+  "history": true,
+  "images": 14,
+  "request_bytes": 42278907,
+  "image_url_bytes": 42058700,
+  "sha256": "996da02452148566204afb70088a084ca5cdfd3bfb618c936e952661e6d4c687"
+}

@@ -1,0 +1,5 @@
+ok  	github.com/Wei-Shaw/sub2api/internal/service	120.968s
+ok  	github.com/Wei-Shaw/sub2api/internal/handler	37.298s
+ok  	github.com/Wei-Shaw/sub2api/internal/pkg/httputil	0.016s
+ok  	github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel	0.010s
+ok  	github.com/Wei-Shaw/sub2api/internal/service/openai_ws_v2	3.028s

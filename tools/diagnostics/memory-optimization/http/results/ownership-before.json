@@ -1,0 +1,72 @@
+{
+  "abort": false,
+  "account": "oauth",
+  "forensic": false,
+  "input_sha256": "e0e7213e40189b0f8e3306d830a27008c56332d4a5869e7191fadb5b5e36bf4d",
+  "peak_heap_delta": 227393912,
+  "request_bytes": 42059736,
+  "response_bytes": 0,
+  "retained_after_complete": 67647032,
+  "samples": [
+    {
+      "Name": "baseline",
+      "HeapAlloc": 6145648,
+      "TotalAlloc": 11558056,
+      "HeapInuse": 9527296,
+      "HeapSys": 16023552,
+      "HeapReleased": 4440064,
+      "PeakHeap": 6145648,
+      "MaxRSS": 57655296,
+      "NumGC": 5,
+      "Goroutines": 19,
+      "ActiveHandlers": 0,
+      "ForcedGC": true
+    },
+    {
+      "Name": "upstream_wait_raw",
+      "HeapAlloc": 115877248,
+      "TotalAlloc": 313867864,
+      "HeapInuse": 119201792,
+      "HeapSys": 309690368,
+      "HeapReleased": 39632896,
+      "PeakHeap": 233539560,
+      "MaxRSS": 320323584,
+      "NumGC": 10,
+      "Goroutines": 24,
+      "ActiveHandlers": 1,
+      "ForcedGC": false
+    },
+    {
+      "Name": "completed_raw",
+      "HeapAlloc": 116064656,
+      "TotalAlloc": 314055272,
+      "HeapInuse": 119332864,
+      "HeapSys": 309690368,
+      "HeapReleased": 39559168,
+      "PeakHeap": 233539560,
+      "MaxRSS": 320323584,
+      "NumGC": 10,
+      "Goroutines": 23,
+      "ActiveHandlers": 0,
+      "ForcedGC": false
+    },
+    {
+      "Name": "completed_gc",
+      "HeapAlloc": 73792680,
+      "TotalAlloc": 314058464,
+      "HeapInuse": 77127680,
+      "HeapSys": 309657600,
+      "HeapReleased": 45236224,
+      "PeakHeap": 233539560,
+      "MaxRSS": 320323584,
+      "NumGC": 12,
+      "Goroutines": 23,
+      "ActiveHandlers": 0,
+      "ForcedGC": true
+    }
+  ],
+  "stream": true,
+  "total_alloc_delta": 302500408,
+  "upstream_ws_attempts": 0,
+  "ws_mode": ""
+}

@@ -1,0 +1,8 @@
+{
+  "source_thread": "01a08c38-70e1-7f23-ae04-d7131125e4a2",
+  "kind": "本地 rollout 前14个实际图片块，重建 user 消息；非出站抓包",
+  "images": 14,
+  "request_bytes": 42059736,
+  "image_url_bytes": 42058700,
+  "sha256": "df16d68ecc5c2061eebda6cd8483fd12c91654fea6d5c99f3966c6eb79d19cb7"
+}

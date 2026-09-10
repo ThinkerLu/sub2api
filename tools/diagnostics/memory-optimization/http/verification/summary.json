@@ -1,0 +1,9 @@
+{
+  "production_head": "107759e11",
+  "go": "go1.27.0 darwin/arm64",
+  "full_regression": "5 packages passed",
+  "race_http": "handler/service/openai_ws_v2 targeted Bootstrap|Bridge|ImageCounter|ImageOutput|Namespace|Passthrough passed before metadata ownership change",
+  "race_ownership": "service RequestView|Failover|Passthrough|Bridge passed after metadata ownership change",
+  "network": "56 before/after natural/forensic results; final ActiveHandlers=0; input checks passed",
+  "history_upstream_hashes": "all 6 before/after canonical input hashes equal"
+}

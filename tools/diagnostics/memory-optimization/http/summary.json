@@ -1,0 +1,532 @@
+{
+  "baseline": "5de5e2bed",
+  "production_head": "107759e11",
+  "network": {
+    "synthetic": {
+      "apikey-stream-forensic": {
+        "request_bytes": [
+          8388950,
+          8388950
+        ],
+        "total_alloc_delta": [
+          471734200,
+          136052176
+        ],
+        "peak_heap_delta": [
+          92410720,
+          67269144
+        ],
+        "retained_after_complete": [
+          17059416,
+          275744
+        ]
+      },
+      "apikey-stream-natural": {
+        "request_bytes": [
+          8388950,
+          8388950
+        ],
+        "total_alloc_delta": [
+          469479744,
+          133842712
+        ],
+        "peak_heap_delta": [
+          92411752,
+          67269240
+        ],
+        "retained_after_complete": [
+          17058200,
+          276032
+        ]
+      },
+      "cancel-forensic": {
+        "request_bytes": [
+          8388950,
+          8388950
+        ],
+        "total_alloc_delta": [
+          480004176,
+          52015144
+        ],
+        "peak_heap_delta": [
+          109205608,
+          42155424
+        ],
+        "retained_after_complete": [
+          17046280,
+          278976
+        ]
+      },
+      "cancel-natural": {
+        "request_bytes": [
+          8388950,
+          8388950
+        ],
+        "total_alloc_delta": [
+          477893600,
+          49934768
+        ],
+        "peak_heap_delta": [
+          109213208,
+          42150104
+        ],
+        "retained_after_complete": [
+          17051120,
+          267072
+        ]
+      },
+      "nonstream-response-forensic": {
+        "request_bytes": [
+          1367,
+          1367
+        ],
+        "total_alloc_delta": [
+          36487752,
+          19719928
+        ],
+        "peak_heap_delta": [
+          25318048,
+          17377320
+        ],
+        "retained_after_complete": [
+          275488,
+          285536
+        ]
+      },
+      "nonstream-response-natural": {
+        "request_bytes": [
+          1367,
+          1367
+        ],
+        "total_alloc_delta": [
+          34396928,
+          17530408
+        ],
+        "peak_heap_delta": [
+          25318128,
+          8858600
+        ],
+        "retained_after_complete": [
+          280568,
+          272976
+        ]
+      },
+      "oauth-normal-forensic": {
+        "request_bytes": [
+          8388950,
+          8388950
+        ],
+        "total_alloc_delta": [
+          413045080,
+          110875920
+        ],
+        "peak_heap_delta": [
+          84399760,
+          54686480
+        ],
+        "retained_after_complete": [
+          17060728,
+          276272
+        ]
+      },
+      "oauth-normal-natural": {
+        "request_bytes": [
+          8388950,
+          8388950
+        ],
+        "total_alloc_delta": [
+          419160976,
+          117113488
+        ],
+        "peak_heap_delta": [
+          92446152,
+          58921872
+        ],
+        "retained_after_complete": [
+          17059416,
+          280584
+        ]
+      },
+      "oauth-stream-forensic": {
+        "request_bytes": [
+          8388950,
+          8388950
+        ],
+        "total_alloc_delta": [
+          479991544,
+          52001808
+        ],
+        "peak_heap_delta": [
+          100822336,
+          33754128
+        ],
+        "retained_after_complete": [
+          17059144,
+          276232
+        ]
+      },
+      "oauth-stream-natural": {
+        "request_bytes": [
+          8388950,
+          8388950
+        ],
+        "total_alloc_delta": [
+          477871208,
+          49926456
+        ],
+        "peak_heap_delta": [
+          109206072,
+          42151408
+        ],
+        "retained_after_complete": [
+          17054480,
+          275160
+        ]
+      },
+      "stream-response-forensic": {
+        "request_bytes": [
+          1366,
+          1366
+        ],
+        "total_alloc_delta": [
+          86350360,
+          78022960
+        ],
+        "peak_heap_delta": [
+          59158104,
+          63146584
+        ],
+        "retained_after_complete": [
+          282840,
+          281336
+        ]
+      },
+      "stream-response-natural": {
+        "request_bytes": [
+          1366,
+          1366
+        ],
+        "total_alloc_delta": [
+          84402440,
+          75947336
+        ],
+        "peak_heap_delta": [
+          59154776,
+          50755712
+        ],
+        "retained_after_complete": [
+          277056,
+          274800
+        ]
+      },
+      "ws-client-fallback-forensic": {
+        "request_bytes": [
+          8388950,
+          8388950
+        ],
+        "total_alloc_delta": [
+          708260224,
+          78877816
+        ],
+        "peak_heap_delta": [
+          100867320,
+          42195208
+        ],
+        "retained_after_complete": [
+          17099808,
+          325744
+        ]
+      },
+      "ws-client-fallback-natural": {
+        "request_bytes": [
+          8388950,
+          8388950
+        ],
+        "total_alloc_delta": [
+          705018328,
+          75607976
+        ],
+        "peak_heap_delta": [
+          100872432,
+          33793536
+        ],
+        "retained_after_complete": [
+          17103672,
+          322664
+        ]
+      },
+      "ws-threshold-bridge-forensic": {
+        "request_bytes": [
+          8388950,
+          8388950
+        ],
+        "total_alloc_delta": [
+          313581528,
+          44913216
+        ],
+        "peak_heap_delta": [
+          101195472,
+          35105992
+        ],
+        "retained_after_complete": [
+          271520,
+          273760
+        ]
+      },
+      "ws-threshold-bridge-natural": {
+        "request_bytes": [
+          8388950,
+          8388950
+        ],
+        "total_alloc_delta": [
+          311459664,
+          42867400
+        ],
+        "peak_heap_delta": [
+          101270392,
+          34135176
+        ],
+        "retained_after_complete": [
+          264552,
+          278080
+        ]
+      }
+    },
+    "images": {
+      "oauth-stream-forensic": {
+        "request_bytes": [
+          42059736,
+          42059736
+        ],
+        "total_alloc_delta": [
+          1858607096,
+          304593608
+        ],
+        "peak_heap_delta": [
+          425657184,
+          227394104
+        ],
+        "retained_after_complete": [
+          67390376,
+          275672
+        ]
+      },
+      "oauth-stream-natural": {
+        "request_bytes": [
+          42059736,
+          42059736
+        ],
+        "total_alloc_delta": [
+          1856396400,
+          302498896
+        ],
+        "peak_heap_delta": [
+          425663856,
+          227393424
+        ],
+        "retained_after_complete": [
+          67390536,
+          275256
+        ]
+      },
+      "ws-client-fallback-forensic": {
+        "request_bytes": [
+          42059736,
+          42059736
+        ],
+        "total_alloc_delta": [
+          2937499112,
+          475879808
+        ],
+        "peak_heap_delta": [
+          425708728,
+          227439472
+        ],
+        "retained_after_complete": [
+          67436120,
+          326016
+        ]
+      },
+      "ws-client-fallback-natural": {
+        "request_bytes": [
+          42059736,
+          42059736
+        ],
+        "total_alloc_delta": [
+          2934113720,
+          472609488
+        ],
+        "peak_heap_delta": [
+          425713280,
+          227433960
+        ],
+        "retained_after_complete": [
+          67435064,
+          321928
+        ]
+      },
+      "ws-threshold-bridge-forensic": {
+        "request_bytes": [
+          42059736,
+          42059736
+        ],
+        "total_alloc_delta": [
+          1647736528,
+          256721472
+        ],
+        "peak_heap_delta": [
+          584673816,
+          210621288
+        ],
+        "retained_after_complete": [
+          266056,
+          272400
+        ]
+      },
+      "ws-threshold-bridge-natural": {
+        "request_bytes": [
+          42059736,
+          42059736
+        ],
+        "total_alloc_delta": [
+          1645507272,
+          254639160
+        ],
+        "peak_heap_delta": [
+          584672320,
+          168820176
+        ],
+        "retained_after_complete": [
+          266136,
+          279800
+        ]
+      }
+    },
+    "history": {
+      "oauth-stream-forensic": {
+        "request_bytes": [
+          42278907,
+          42278907
+        ],
+        "total_alloc_delta": [
+          2296363152,
+          828556392
+        ],
+        "peak_heap_delta": [
+          505315992,
+          396361040
+        ],
+        "retained_after_complete": [
+          42560464,
+          286824
+        ]
+      },
+      "oauth-stream-natural": {
+        "request_bytes": [
+          42278907,
+          42278907
+        ],
+        "total_alloc_delta": [
+          2293962608,
+          826267480
+        ],
+        "peak_heap_delta": [
+          464247680,
+          396562160
+        ],
+        "retained_after_complete": [
+          42554664,
+          275768
+        ]
+      },
+      "ws-client-fallback-forensic": {
+        "request_bytes": [
+          42278907,
+          42278907
+        ],
+        "total_alloc_delta": [
+          3683373472,
+          1523458128
+        ],
+        "peak_heap_delta": [
+          497656960,
+          396424768
+        ],
+        "retained_after_complete": [
+          42617728,
+          323400
+        ]
+      },
+      "ws-client-fallback-natural": {
+        "request_bytes": [
+          42278907,
+          42278907
+        ],
+        "total_alloc_delta": [
+          3679671976,
+          1519946728
+        ],
+        "peak_heap_delta": [
+          514312104,
+          406237016
+        ],
+        "retained_after_complete": [
+          42613256,
+          320440
+        ]
+      },
+      "ws-threshold-bridge-forensic": {
+        "request_bytes": [
+          42278907,
+          42278907
+        ],
+        "total_alloc_delta": [
+          1967464728,
+          780866240
+        ],
+        "peak_heap_delta": [
+          490882944,
+          366757520
+        ],
+        "retained_after_complete": [
+          282840,
+          268256
+        ]
+      },
+      "ws-threshold-bridge-natural": {
+        "request_bytes": [
+          42278907,
+          42278907
+        ],
+        "total_alloc_delta": [
+          1965218160,
+          778676632
+        ],
+        "peak_heap_delta": [
+          490947656,
+          363588664
+        ],
+        "retained_after_complete": [
+          266304,
+          273400
+        ]
+      }
+    }
+  },
+  "micro_B_per_op": {
+    "before": {
+      "BenchmarkBootstrapImageContext": 167791109,
+      "BenchmarkHTTPClientToolScan": 8396801,
+      "BenchmarkHTTPNamespaceNoChange": 25190414,
+      "BenchmarkImageCounterTextResponse": 16793792,
+      "BenchmarkBridgeImageBody": 58746129
+    },
+    "after": {
+      "BenchmarkBootstrapImageContext": 0,
+      "BenchmarkHTTPClientToolScan": 0,
+      "BenchmarkHTTPNamespaceNoChange": 0,
+      "BenchmarkImageCounterTextResponse": 192,
+      "BenchmarkBridgeImageBody": 8398691
+    }
+  }
+}

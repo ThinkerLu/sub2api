@@ -1,0 +1,25 @@
+File: http.test
+Type: inuse_space
+Time: 2026-09-11 04:27:01 CST
+Showing nodes accounting for 66584.08kB, 97.19% of 68508.45kB total
+Dropped 95 nodes (cum <= 342.54kB)
+      flat  flat%   sum%        cum   cum%
+         0     0%     0% 65937.37kB 96.25%  net/http.(*conn).serve
+         0     0%     0% 65873.33kB 96.15%  github.com/Wei-Shaw/sub2api/internal/handler.(*OpenAIGatewayHandler).Responses
+         0     0%     0% 65873.33kB 96.15%  github.com/Wei-Shaw/sub2api/internal/handler.TestDiagnosticWSGateway.func4
+         0     0%     0% 65873.33kB 96.15%  github.com/gin-gonic/gin.(*Context).Next (inline)
+         0     0%     0% 65873.33kB 96.15%  github.com/gin-gonic/gin.(*Engine).ServeHTTP
+         0     0%     0% 65873.33kB 96.15%  github.com/gin-gonic/gin.(*Engine).handleHTTPRequest
+         0     0%     0% 65873.33kB 96.15%  net/http.serverHandler.ServeHTTP
+         0     0%     0%    65792kB 96.03%  bytes.(*Buffer).ReadFrom
+         0     0%     0%    65792kB 96.03%  bytes.(*Buffer).grow
+   65792kB 96.03% 96.03%    65792kB 96.03%  bytes.growSlice
+         0     0% 96.03%    65792kB 96.03%  github.com/Wei-Shaw/sub2api/internal/handler.readLenientJSONRequestBodyWithPrealloc
+         0     0% 96.03%    65792kB 96.03%  github.com/Wei-Shaw/sub2api/internal/pkg/httputil.ReadLenientJSONRequestBodyWithPrealloc
+         0     0% 96.03%    65792kB 96.03%  github.com/Wei-Shaw/sub2api/internal/pkg/httputil.ReadRequestBodyWithPrealloc
+         0     0% 96.03%    65792kB 96.03%  io.Copy (inline)
+         0     0% 96.03%    65792kB 96.03%  io.copyBuffer
+         0     0% 96.03%  1541.23kB  2.25%  runtime.doInit (inline)
+         0     0% 96.03%  1541.23kB  2.25%  runtime.doInit1
+         0     0% 96.03%  1541.23kB  2.25%  runtime.main
+  792.08kB  1.16% 97.19%   856.10kB  1.25%  modernc.org/libc/honnef.co/go/netdb.init.0
