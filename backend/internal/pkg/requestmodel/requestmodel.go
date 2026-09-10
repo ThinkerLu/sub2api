@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unsafe"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/tidwall/gjson"
@@ -120,12 +121,15 @@ func jsonModelWithPaths(body []byte, paths []string) (string, string) {
 
 // jsonModelCandidates 返回顶层所有键名大小写不敏感等于 "model" 的字符串值，
 // 按出现顺序保留重复（覆盖 gjson 首 matches 与 encoding/json 末值绑定两类解析器）。
+// Candidate scans borrow immutable request bytes only during this call.
+// Clone each returned small model name so it cannot retain the full request
+// or change if the caller later rewrites/reuses its input buffer.
 func jsonModelCandidates(body []byte) []string {
 	var out []string
-	gjson.ParseBytes(body).ForEach(func(key, value gjson.Result) bool {
+	gjson.Parse(unsafe.String(unsafe.SliceData(body), len(body))).ForEach(func(key, value gjson.Result) bool {
 		if value.Type == gjson.String && strings.EqualFold(key.String(), "model") {
 			if trimmed := strings.TrimSpace(value.String()); trimmed != "" {
-				out = append(out, trimmed)
+				out = append(out, strings.Clone(trimmed))
 			}
 		}
 		return true
@@ -137,14 +141,14 @@ func jsonModelCandidates(body []byte) []string {
 // 所有键名大小写不敏感等于 "model" 的字符串值。
 func jsonSessionModelCandidates(body []byte) []string {
 	var out []string
-	gjson.ParseBytes(body).ForEach(func(key, value gjson.Result) bool {
+	gjson.Parse(unsafe.String(unsafe.SliceData(body), len(body))).ForEach(func(key, value gjson.Result) bool {
 		if !strings.EqualFold(key.String(), "session") {
 			return true
 		}
 		value.ForEach(func(sessionKey, sessionValue gjson.Result) bool {
 			if sessionValue.Type == gjson.String && strings.EqualFold(sessionKey.String(), "model") {
 				if trimmed := strings.TrimSpace(sessionValue.String()); trimmed != "" {
-					out = append(out, trimmed)
+					out = append(out, strings.Clone(trimmed))
 				}
 			}
 			return true
