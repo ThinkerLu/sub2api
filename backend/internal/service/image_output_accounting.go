@@ -41,7 +41,7 @@ func (c *openAIImageOutputCounter) Sizes() []string {
 	sizes := make([]string, 0, len(c.seenOrder)+len(c.dataSizes))
 	for _, key := range c.seenOrder {
 		if size := strings.TrimSpace(c.seenSizes[key]); size != "" {
-			sizes = append(sizes, size)
+			sizes = append(sizes, strings.Clone(size))
 		}
 	}
 	if len(sizes) == 0 && len(c.dataSizes) > 0 {
@@ -57,16 +57,17 @@ func (c *openAIImageOutputCounter) AddJSONResponse(body []byte) {
 	if c == nil || len(body) == 0 || !gjson.ValidBytes(body) {
 		return
 	}
-	c.addDataArray(gjson.GetBytes(body, "data"))
-	c.addOutputArray(gjson.GetBytes(body, "output"))
-	c.addOutputArray(gjson.GetBytes(body, "response.output"))
+	root := parseRawJSONView(body)
+	c.addDataArray(root.Get("data"))
+	c.addOutputArray(root.Get("output"))
+	c.addOutputArray(root.Get("response.output"))
 }
 
 func (c *openAIImageOutputCounter) AddSSEData(data []byte) {
 	if c == nil || len(data) == 0 || strings.TrimSpace(string(data)) == "[DONE]" || !gjson.ValidBytes(data) {
 		return
 	}
-	root := gjson.ParseBytes(data)
+	root := parseRawJSONView(data)
 	c.addDataArray(root.Get("data"))
 	eventType := strings.TrimSpace(root.Get("type").String())
 	switch eventType {
@@ -112,7 +113,7 @@ func (c *openAIImageOutputCounter) addDataArray(data gjson.Result) {
 		}
 		imageCount++
 		if size := strings.TrimSpace(item.Get("size").String()); size != "" {
-			sizes = append(sizes, size)
+			sizes = append(sizes, strings.Clone(size))
 		}
 	}
 	if imageCount > c.maxDataCount {
@@ -164,17 +165,19 @@ func (c *openAIImageOutputCounter) addImageOutputItem(item gjson.Result) {
 	if key == "" {
 		return
 	}
+	// Retained metadata must not keep the borrowed response buffer alive.
+	key = strings.Clone(key)
 	size := strings.TrimSpace(item.Get("size").String())
 	if _, exists := c.seen[key]; exists {
 		if size != "" && strings.TrimSpace(c.seenSizes[key]) == "" {
-			c.seenSizes[key] = size
+			c.seenSizes[key] = strings.Clone(size)
 		}
 		return
 	}
 	c.seen[key] = struct{}{}
 	c.seenOrder = append(c.seenOrder, key)
 	if size != "" {
-		c.seenSizes[key] = size
+		c.seenSizes[key] = strings.Clone(size)
 	}
 	c.count++
 }
