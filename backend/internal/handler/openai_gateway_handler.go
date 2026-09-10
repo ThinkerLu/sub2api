@@ -1652,6 +1652,12 @@ func normalizeCodexAutomationBootstrap(body []byte) ([]byte, bool) {
 }
 
 func normalizeCodexCallOutputBootstrap(body []byte, isCandidate func(map[string]any) bool, allowHistoricalContext bool) ([]byte, bool) {
+	// Both candidate predicates require function_call_output. Escaped JSON may
+	// spell that value with Unicode escapes, so retain the full validation path
+	// whenever an escape is present. The common image-only path borrows body.
+	if !bytes.Contains(body, []byte("function_call_output")) && !bytes.Contains(body, []byte(`\u`)) {
+		return body, false
+	}
 	if !hasUniqueJSONMembers(body) {
 		return body, false
 	}
