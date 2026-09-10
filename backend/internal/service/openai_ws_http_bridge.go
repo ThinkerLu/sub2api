@@ -473,7 +473,12 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	if err != nil {
 		return nil, fmt.Errorf("prepare http bridge body: %w", err)
 	}
-	grokIntentSourceBody := append([]byte(nil), body...)
+	// Only Grok uses this snapshot after adaptation. OpenAI bridge requests
+	// do not need to retain another complete image context.
+	var grokIntentSourceBody []byte
+	if account.Platform == PlatformGrok {
+		grokIntentSourceBody = append([]byte(nil), body...)
+	}
 	_, grokExplicitToolsField := openAIWSHTTPBridgeRawField(grokIntentSourceBody, "tools")
 	grokExplicitToolIntent := account.Platform == PlatformGrok && hasGrokResponsesToolIntent(grokIntentSourceBody)
 	var clientToolMapping apicompat.ResponsesClientToolMapping
