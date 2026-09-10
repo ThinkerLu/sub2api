@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 	"strings"
 	"testing"
 )
@@ -28,4 +29,23 @@ func BenchmarkMemoryPassthrough(b *testing.B) {
 			}
 		}
 	})
+	b.Run("CompactionNoop8MiB", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			var err error
+			memoryOptimizationSink, _, err = NormalizeCompactionTriggerInputOrder(payload)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("ModelCandidates8MiB", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			memoryModelCandidates = requestmodel.FromBodyCandidates("", "application/json", payload)
+		}
+	})
+
 }
+
+var memoryModelCandidates []string

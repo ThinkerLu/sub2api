@@ -1,6 +1,8 @@
 package service
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -27,6 +29,14 @@ func MarkOpenAINativeCompactionV2(c *gin.Context) {
 func NormalizeCompactionTriggerInputOrder(body []byte) ([]byte, bool, error) {
 	if len(body) == 0 {
 		return body, false, nil
+	}
+	// Most passthrough turns contain no compaction marker. Keep the decoder
+	// for escaped/ambiguous inputs and invalid JSON so its semantics survive.
+	if !bytes.Contains(body, []byte("compaction_trigger")) && !bytes.Contains(body, []byte(`\u`)) && json.Valid(body) {
+		root := parseRawJSONView(body)
+		if root.IsObject() || bytes.Equal(bytes.TrimSpace(body), []byte("null")) {
+			return body, false, nil
+		}
 	}
 	var payload map[string]any
 	if err := decodeOpenAIJSONUseNumber(body, &payload); err != nil {
