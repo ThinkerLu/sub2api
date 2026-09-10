@@ -2424,10 +2424,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	cyberBlockedThisConn := false
 	cyberBlockPendingAfterFailover := false
 	var cyberTurnBodiesMu sync.Mutex
-	cyberTurnBodies := map[int][]byte{1: append([]byte(nil), firstMessage...)}
+	// Ingress payloads are immutable; policy checks can share their bytes.
+	// Copying every frame here doubled the retained body during streaming.
+	cyberTurnBodies := map[int][]byte{1: firstMessage}
 	setCyberTurnBody := func(turn int, payload []byte) {
 		cyberTurnBodiesMu.Lock()
-		cyberTurnBodies[turn] = append([]byte(nil), payload...)
+		cyberTurnBodies[turn] = payload
 		cyberTurnBodiesMu.Unlock()
 	}
 	takeCyberTurnBody := func(turn int) []byte {
@@ -2514,7 +2516,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
-	wsAttemptMessage := append([]byte(nil), firstMessage...)
+	wsAttemptMessage := &openAIWSAttemptPayload{body: firstMessage}
 	waitForWSSameAccountRetry := func(account *service.Account, failoverErr *service.UpstreamFailoverError) bool {
 		if account == nil || failoverErr == nil || failoverErr.StatusCode != http.StatusTooManyRequests || failoverErr.SameAccountRetryDeadline.IsZero() {
 			return false
@@ -2871,6 +2873,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return nil
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
+				if turn == 1 && turnErr == nil {
+					// The completed first turn can no longer be replayed. Later
+					// failover must carry its own current-turn payload.
+					wsAttemptMessage.store(nil)
+				}
 				turnStart := getTurnStart(turn)
 				cyberBlockBody := takeCyberTurnBody(turn)
 				// 每次 attempt 都清 cyber mark；failover 链结束前保留 recorded guard，
@@ -2977,7 +2984,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			},
 		}
 
-		wsFirstMessage := wsAttemptMessage
+		wsFirstMessage := wsAttemptMessage.load()
 		// 切组/会话失配防护：previous_response_id 未在当前分组命中粘连账号（StickyPreviousHit=false），
 		// 说明该会话链不属于本次调度到的账号，原样转发会触发上游会话链鉴权失败（“鉴权失败，请检查 API Key”）。
 		// 故剥离首包里的 previous_response_id，改用首包内 input 重建上下文；带 function_call_output 的
@@ -3009,12 +3016,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				retryPayload, retryCurrentTurn := service.OpenAIWSCurrentTurnRetryPayload(err)
-				nextAttemptMessage, retrySafe := openAIWSNextAttemptMessage(wsAttemptMessage, retryPayload, retryCurrentTurn)
+				nextAttemptMessage, retrySafe := openAIWSNextAttemptMessage(wsAttemptMessage.load(), retryPayload, retryCurrentTurn)
 				if !retrySafe {
 					closeOpenAIWSFailoverExhausted(c, wsConn, failoverErr)
 					return
 				}
-				wsAttemptMessage = nextAttemptMessage
+				wsAttemptMessage.store(nextAttemptMessage)
 				if retryCurrentTurn {
 					previousResponseID = ""
 					reqLog.Warn("openai.websocket_current_turn_failover_retry",
@@ -3042,7 +3049,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 						}
 						currentAccountRelease = wrapReleaseOnDone(ctx, accountRelease)
 					}
-					wsFirstMessage = wsAttemptMessage
+					wsFirstMessage = wsAttemptMessage.load()
 					continue
 				}
 				if handleWSFailover(account, failoverErr) {
@@ -3744,8 +3751,31 @@ func closeOpenAIClientWS(conn *coderws.Conn, status coderws.StatusCode, reason s
 	_ = conn.CloseNow()
 }
 
+// The service may complete a turn on the upstream reader goroutine. Keep the
+// retry reference behind a lock so a long-lived WS releases its first body as
+// soon as the turn completes without racing the handler's failover path.
+type openAIWSAttemptPayload struct {
+	mu   sync.Mutex
+	body []byte
+}
+
+func (p *openAIWSAttemptPayload) load() []byte {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.body
+}
+
+func (p *openAIWSAttemptPayload) store(body []byte) {
+	p.mu.Lock()
+	p.body = body
+	p.mu.Unlock()
+}
+
 func openAIWSNextAttemptMessage(current, retryPayload []byte, retryCurrentTurn bool) ([]byte, bool) {
 	if !retryCurrentTurn {
+		if len(current) == 0 {
+			return nil, false
+		}
 		return append([]byte(nil), current...), true
 	}
 	if len(retryPayload) == 0 {

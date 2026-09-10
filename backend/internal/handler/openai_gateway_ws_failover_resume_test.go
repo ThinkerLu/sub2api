@@ -33,3 +33,20 @@ func TestOpenAIWSNextAttemptMessageKeepsInitialMessageForFirstTurnFailover(t *te
 	require.True(t, ok)
 	require.Equal(t, firstMessage, next)
 }
+
+func TestOpenAIWSNextAttemptMessageCannotReplayReleasedFirstTurn(t *testing.T) {
+	initial := &openAIWSAttemptPayload{body: []byte(`{"type":"response.create","input":"first"}`)}
+	// Failed first attempts retain the initial body. A completed turn releases it.
+	require.NotEmpty(t, initial.load())
+	initial.store(nil)
+	next, ok := openAIWSNextAttemptMessage(initial.load(), nil, false)
+	require.False(t, ok)
+	require.Nil(t, next)
+	// Subsequent turns still fail over using their own complete history.
+	current := []byte(`{"type":"response.create","input":"later"}`)
+	next, ok = openAIWSNextAttemptMessage(initial.load(), current, true)
+	require.True(t, ok)
+	require.Equal(t, current, next)
+	initial.store(next)
+	require.Equal(t, current, initial.load())
+}
