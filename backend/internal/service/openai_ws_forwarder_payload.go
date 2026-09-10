@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 	"unsafe"
 
 	"github.com/gin-gonic/gin"
@@ -569,9 +570,7 @@ func openAIWSInputIsPrefixExtended(previousPayload, currentPayload []byte) (bool
 	}
 
 	for idx := range previousItems {
-		previousNormalized := normalizeOpenAIWSJSONForCompareOrRaw(previousItems[idx])
-		currentNormalized := normalizeOpenAIWSJSONForCompareOrRaw(currentItems[idx])
-		if !bytes.Equal(previousNormalized, currentNormalized) {
+		if !openAIWSReplayJSONEqual(previousItems[idx], currentItems[idx]) {
 			return false, nil
 		}
 	}
@@ -586,17 +585,81 @@ func openAIWSRawItemsHasPrefix(items []json.RawMessage, prefix []json.RawMessage
 		return false
 	}
 	for idx := range prefix {
-		// 快路径：客户端逐字节重发历史时直接比较，避免整轮历史的解码/再编码。
-		if bytes.Equal(bytes.TrimSpace(prefix[idx]), bytes.TrimSpace(items[idx])) {
-			continue
-		}
-		previousNormalized := normalizeOpenAIWSJSONForCompareOrRaw(prefix[idx])
-		currentNormalized := normalizeOpenAIWSJSONForCompareOrRaw(items[idx])
-		if !bytes.Equal(previousNormalized, currentNormalized) {
+		if !openAIWSReplayJSONEqual(prefix[idx], items[idx]) {
 			return false
 		}
 	}
 	return true
+}
+
+// Compare immutable JSON views without decoding/re-encoding entire input
+// items. Even a tiny delta used to normalize a huge historical image here.
+func openAIWSReplayJSONEqual(a, b []byte) bool {
+	if bytes.Equal(bytes.TrimSpace(a), bytes.TrimSpace(b)) {
+		return true
+	}
+	if !json.Valid(a) || !json.Valid(b) {
+		return false
+	}
+	// Retain encoding/json's replacement semantics for legacy malformed UTF-8.
+	if !utf8.Valid(a) || !utf8.Valid(b) {
+		return bytes.Equal(normalizeOpenAIWSJSONForCompareOrRaw(a), normalizeOpenAIWSJSONForCompareOrRaw(b))
+	}
+	return openAIWSReplayJSONValuesEqual(parseRawJSONView(a), parseRawJSONView(b))
+}
+
+func openAIWSReplayJSONValuesEqual(a, b gjson.Result) bool {
+	if a.Type != b.Type {
+		return false
+	}
+	if a.Raw == b.Raw {
+		return true
+	}
+	switch a.Type {
+	case gjson.String:
+		return a.Str == b.Str
+	case gjson.JSON:
+		if a.IsArray() != b.IsArray() {
+			return false
+		}
+		if a.IsArray() {
+			left, right := a.Array(), b.Array()
+			if len(left) != len(right) {
+				return false
+			}
+			for i := range left {
+				if !openAIWSReplayJSONValuesEqual(left[i], right[i]) {
+					return false
+				}
+			}
+			return true
+		}
+		// encoding/json map decoding uses the last duplicate key. Do not use
+		// gjson.Get/Map's first-key semantics for this equivalence check.
+		fields := func(object gjson.Result) map[string]gjson.Result {
+			result := make(map[string]gjson.Result)
+			object.ForEach(func(key, value gjson.Result) bool {
+				result[key.String()] = value
+				return true
+			})
+			return result
+		}
+		left, right := fields(a), fields(b)
+		if len(left) != len(right) {
+			return false
+		}
+		for key, value := range left {
+			other, exists := right[key]
+			if !exists || !openAIWSReplayJSONValuesEqual(value, other) {
+				return false
+			}
+		}
+		return true
+	default:
+		// UseNumber in the original comparator preserved the number lexeme,
+		// including integers above float64 precision and 1 vs 1.0.
+		return a.Raw == b.Raw
+	}
 }
 
 func openAIWSRawItemsHasFunctionCallOutput(items []json.RawMessage) bool {
