@@ -1903,8 +1903,11 @@ func openAIRequestBodyMayContainImageInput(body []byte) bool {
 	if len(body) == 0 {
 		return false
 	}
-	input := gjson.GetBytes(body, "input")
-	messages := gjson.GetBytes(body, "messages.#-1")
+	// These predicates consume the borrowed view synchronously and never mutate
+	// body. GetBytes would copy the potentially multi-megabyte input result.
+	root := parseRawJSONView(body)
+	input := root.Get("input")
+	messages := root.Get("messages.#-1")
 	return openAIJSONValueMayContainImageInput(input) || openAIJSONValueMayContainImageInput(messages)
 }
 
@@ -1936,7 +1939,7 @@ func openAIRequestBodyMayContainEmptyBase64InputImage(body []byte) bool {
 	if len(body) == 0 || !openAIRequestBodyMayContainInputImageToken(body) {
 		return false
 	}
-	input := gjson.GetBytes(body, "input")
+	input := parseRawJSONView(body).Get("input")
 	if !input.Exists() {
 		return false
 	}
