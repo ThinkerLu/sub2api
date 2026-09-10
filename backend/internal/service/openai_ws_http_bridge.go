@@ -60,12 +60,28 @@ func decodeOpenAIWSHTTPBridgeLoweredTools(raw json.RawMessage) []any {
 }
 
 func openAIWSHTTPBridgeRawField(body []byte, name string) (json.RawMessage, bool) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(body, &fields); err != nil {
+	// Validate the whole document, but borrow immutable views during the scan.
+	// Copy only the selected field: saved tools must not retain the large input.
+	if !json.Valid(body) {
 		return nil, false
 	}
-	raw, present := fields[name]
-	return append(json.RawMessage(nil), raw...), present
+	root := parseRawJSONView(body)
+	if !root.IsObject() {
+		return nil, false
+	}
+	var selected gjson.Result
+	present := false
+	root.ForEach(func(key, value gjson.Result) bool {
+		// Match encoding/json's last duplicate key and escaped-key semantics.
+		if key.String() == name {
+			selected, present = value, true
+		}
+		return true
+	})
+	if !present {
+		return nil, false
+	}
+	return json.RawMessage(selected.Raw), true
 }
 
 func openAIWSHTTPBridgeToolUpstreamName(account *Account) string {
