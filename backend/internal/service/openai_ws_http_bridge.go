@@ -258,19 +258,38 @@ func skipOpenAIWSJSONValue(payload []byte, i int) int {
 }
 
 func prepareOpenAIWSHTTPBridgeBody(account *Account, payload []byte) ([]byte, error) {
-	var body map[string]any
-	if err := decodeOpenAIJSONUseNumber(payload, &body); err != nil {
+	object, _, err := parseOpenAIJSONObject(payload)
+	if err != nil {
 		return nil, err
 	}
-	if body == nil {
+	if object == nil {
 		return nil, errors.New("response.create payload must be a JSON object")
 	}
-	delete(body, "type")
-	delete(body, "generate")
-	delete(body, "previous_response_id")
-	deleteOpenAIResponsesNoneReasoningEffortFromObject(account, body)
-	body["stream"] = true
-	return json.Marshal(body)
+	replacements := map[string][]byte{"stream": []byte("true")}
+	deletions := map[string]bool{"type": true, "generate": true, "previous_response_id": true}
+	if !shouldPreserveOpenAIResponsesNoneReasoningEffort(account) {
+		if effort, _ := object.get("reasoning_effort"); effort.Type == gjson.String && strings.EqualFold(strings.TrimSpace(effort.String()), "none") {
+			deletions["reasoning_effort"] = true
+		}
+		if reasoning, _ := object.get("reasoning"); reasoning.IsObject() {
+			reasoningObject, _, parseErr := parseOpenAIJSONObject(openAIWSRawMessageFromResult(payload, reasoning))
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			dropEffort := false
+			if effort, _ := reasoningObject.get("effort"); effort.Type == gjson.String {
+				dropEffort = strings.EqualFold(strings.TrimSpace(effort.String()), "none")
+			}
+			if len(reasoningObject.lastIndex) == 0 || (dropEffort && len(reasoningObject.lastIndex) == 1) {
+				deletions["reasoning"] = true
+			} else if dropEffort {
+				replacements["reasoning"] = reasoningObject.rewrite(nil, map[string]bool{"effort": true}, nil)
+			}
+		}
+	}
+	// Preserve opaque input bytes and emit one final buffer. Decoding and
+	// re-encoding input used several body-sized buffers on every bridge turn.
+	return object.rewrite(replacements, deletions, []string{"stream"}), nil
 }
 
 type openAIWSToolCallReplayCollector struct {
