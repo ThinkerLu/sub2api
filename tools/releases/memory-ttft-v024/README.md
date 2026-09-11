@@ -1,5 +1,7 @@
 # v0.2.4 内存优化与 WS TTFT 发布包
 
+**范围：本轮 19 项复制/留存优化 + WS 逐轮 TTFT 修复。不包含上一 memory-v2 的内存准入保护。按用户明确选择，部署后 GATEWAY_MEMORY_ADMISSION_* 参数被忽略；保留现有 GOMEMLIMIT 与其他配置。**
+
 此目录随发布包提供 `manifest.json`、Docker 镜像归档、SHA256SUMS。服务器路径由交付说明指定。
 
 部署只切换 sub2api 镜像，不删除数据库、Redis 或 data，不修改现有环境参数。不自动清理旧镜像。当前回滚基线固定为 `63c6fa1da699400cf8db842653f90e3c9d7706b4`（memory-v2）；执行前校验实际运行版本，不能用于其他基线。
