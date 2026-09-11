@@ -687,12 +687,18 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 					openAIWSRawPayloadHasToolCallOutput(currentBridgePayload.payloadRaw),
 				)
 			}
+			warmup := adaptive && gjson.GetBytes(bridgePayloadRaw, "generate").Type == gjson.False
 			if adaptive {
 				candidate, _, candidateErr := dropPreviousResponseIDFromRawPayload(bridgePayloadRaw)
 				if candidateErr != nil {
 					return candidateErr
 				}
-				if int64(len(candidate)) < s.openAIWSHTTPBridgeThresholdBytes() {
+				if warmup {
+					if int64(len(candidate)) >= s.openAIWSHTTPBridgeThresholdBytes() {
+						return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "adaptive warmup exceeds WS threshold; send a full generating request", nil)
+					}
+					bridgePayloadRaw = candidate
+				} else if int64(len(candidate)) < s.openAIWSHTTPBridgeThresholdBytes() {
 					coverage := AnalyzeToolCallOutputContextCoverageBytes(candidate)
 					if coverage.HasFunctionCallOutput && !coverage.ContextCoversAllCallIDs {
 						return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "adaptive bridge requires complete tool context", nil)
@@ -714,21 +720,27 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 					return fmt.Errorf("resolve Grok websocket cache identity: %w", err)
 				}
 			}
-			result, bridgeErr := s.proxyOpenAIWSHTTPBridgeTurn(
-				ctx,
-				c,
-				account,
-				token,
-				bridgePayloadRaw,
-				bridgePayloadBytes,
-				currentBridgePayload.originalModel,
-				currentBridgePayload.imageBillingModel,
-				currentBridgePayload.imageSizeTier,
-				currentBridgePayload.imageInputSize,
-				grokCacheIdentity,
-				turn,
-				writeClientMessage,
-			)
+			var result *OpenAIForwardResult
+			var bridgeErr error
+			if warmup {
+				result, bridgeErr = s.proxyOpenAIWSAdaptiveWarmup(ctx, c, clientConn, account, token, bridgePayloadRaw, hooks, &openAIWSAdaptiveHandoff{originalModel: currentBridgePayload.originalModel, requestedReasoningEffort: currentBridgePayload.requestedReasoningEffort, turn: turn, startedAt: turnStartedAt})
+			} else {
+				result, bridgeErr = s.proxyOpenAIWSHTTPBridgeTurn(
+					ctx,
+					c,
+					account,
+					token,
+					bridgePayloadRaw,
+					bridgePayloadBytes,
+					currentBridgePayload.originalModel,
+					currentBridgePayload.imageBillingModel,
+					currentBridgePayload.imageSizeTier,
+					currentBridgePayload.imageInputSize,
+					grokCacheIdentity,
+					turn,
+					writeClientMessage,
+				)
+			}
 			if bridgeErr != nil && isOpenAIWSSessionPreempted(ctx) {
 				return errOpenAIWSSessionPreempted
 			}

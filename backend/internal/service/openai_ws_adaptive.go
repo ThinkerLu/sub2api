@@ -205,3 +205,23 @@ func (s *OpenAIGatewayService) BeginOpenAIWSAdaptiveSession(ctx context.Context,
 	reader := newOpenAIWSAdaptiveReader(ctx, cancel, conn, s.openAIWSIngressInterTurnIdleTimeout())
 	return context.WithValue(ctx, openAIWSAdaptiveReaderKey{}, reader), func() { cancel(context.Canceled) }
 }
+
+// A real upstream generate=false response preserves IDs/usage, but must not
+// commit the downstream session to passthrough before its first generating turn.
+func (s *OpenAIGatewayService) proxyOpenAIWSAdaptiveWarmup(ctx context.Context, c *gin.Context, client *coderws.Conn, account *Account, token string, payload []byte, hooks *OpenAIWSIngressHooks, handoff *openAIWSAdaptiveHandoff) (*OpenAIForwardResult, error) {
+	next := adaptivePassthroughHooks(hooks, handoff)
+	next.adaptiveWarmup = true
+	collector := &openAIWSToolCallReplayCollector{}
+	next.adaptiveWarmupCollector = collector
+	var result *OpenAIForwardResult
+	next.AfterTurn = func(_ int, r *OpenAIForwardResult, _ error) { result = r }
+	err := s.proxyResponsesWebSocketV2Passthrough(ctx, c, client, account, token, payload, next, s.getOpenAIWSProtocolResolver().Resolve(account))
+	if result != nil {
+		result.wsAccountFailoverReplayInput = collector.AllItems()
+	}
+	if err == nil && (result == nil || !result.SucceededForScheduling()) {
+		err = NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "adaptive warmup did not complete successfully", nil)
+	}
+	logOpenAIWSModeInfo("ingress_ws_adaptive_warmup_completed account_id=%d turn=%d payload_bytes=%d success=%v", account.ID, handoff.turn, len(payload), err == nil)
+	return result, err
+}

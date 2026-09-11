@@ -70,6 +70,8 @@ type RelayExit struct {
 }
 
 type RelayOptions struct {
+	// SingleTurn leaves the downstream open after one terminal event and never reads its next request.
+	SingleTurn                      bool
 	WriteTimeout                    time.Duration
 	IdleTimeout                     time.Duration
 	UpstreamDrainTimeout            time.Duration
@@ -288,7 +290,7 @@ func Relay(
 		}
 		go runClientToUpstream(relayCtx, clientConn, options.ReadClientFrame, writeClientFrameUpstream, markActivity, clientToUpstreamFrames, onTrace, exitCh)
 	}
-	if !options.StartClientAfterFirstDownstream {
+	if !options.SingleTurn && !options.StartClientAfterFirstDownstream {
 		startClientReader()
 	}
 	upstreamDone := make(chan struct{})
@@ -301,13 +303,14 @@ func Relay(
 			startAt,
 			nowFn,
 			state,
+			options.SingleTurn,
 			options.OnUsageParseFailure,
 			options.OnTurnComplete,
 			options.BeforeWriteClient,
 			options.BeforeClientWrite,
 			options.AfterClientWrite,
 			func(msgType coderws.MessageType, payload []byte) {
-				if options.StartClientAfterFirstDownstream {
+				if !options.SingleTurn && options.StartClientAfterFirstDownstream {
 					startClientReader()
 				}
 			},
@@ -382,6 +385,9 @@ func Relay(
 	result.ClientToUpstreamFrames = clientToUpstreamFrames.Load()
 	result.UpstreamToClientFrames = upstreamToClientFrames.Load()
 	result.DroppedDownstreamFrames = droppedDownstreamFrames.Load()
+	if firstExit.stage == "single_turn_completed" {
+		return result, nil
+	}
 	if options.FirstMessageSent && firstExit.stage == "read_client" && firstExit.graceful {
 		emitRelayTrace(onTrace, RelayTraceEvent{
 			Stage:           "relay_client_closed",
@@ -527,6 +533,7 @@ func runUpstreamToClient(
 	startAt time.Time,
 	nowFn func() time.Time,
 	state *relayState,
+	singleTurn bool,
 	onUsageParseFailure func(eventType string, usageRaw string),
 	onTurnComplete func(turn RelayTurnResult),
 	beforeWriteClient func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) error,
@@ -663,6 +670,10 @@ func runUpstreamToClient(
 			forwardedFrames.Add(1)
 		}
 		markActivity()
+		if singleTurn && msgType == coderws.MessageText && isTerminalEvent(strings.TrimSpace(gjson.GetBytes(payload, "type").String())) {
+			exitCh <- relayExitSignal{stage: "single_turn_completed", graceful: true, wroteDownstream: true}
+			return
+		}
 	}
 }
 

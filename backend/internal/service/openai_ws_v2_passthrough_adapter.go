@@ -1199,6 +1199,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		UpstreamConn:       relayUpstreamFrameConn,
 		FirstClientMessage: firstClientMessage,
 		Options: openaiwsv2.RelayOptions{
+			SingleTurn:         hooks != nil && hooks.adaptiveWarmup,
 			WriteTimeout:       s.openAIWSWriteTimeout(),
 			FirstTurnStartedAt: firstTurnStartedAt,
 			TakeNextTurnStartedAt: func() time.Time {
@@ -1272,6 +1273,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				}
 			},
 			BeforeClientWrite: func(msgType coderws.MessageType, payload []byte) {
+				if hooks != nil && hooks.adaptiveWarmupCollector != nil && msgType == coderws.MessageText {
+					hooks.adaptiveWarmupCollector.AddEvent(gjson.GetBytes(payload, "type").String(), payload)
+				}
 				if msgType == coderws.MessageText && openAIWSPassthroughIsTerminalOutput(payload) {
 					turnLifecycle.beginTerminalWrite()
 				}
@@ -1286,6 +1290,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				}
 			},
 			BeforeRelayCancel: func(exit openaiwsv2.RelayExit) {
+				if hooks != nil && hooks.adaptiveWarmup && exit.Stage == "single_turn_completed" {
+					return
+				}
 				if context.Cause(ctx) != nil {
 					return
 				}

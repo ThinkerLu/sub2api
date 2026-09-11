@@ -1478,3 +1478,21 @@ func TestRelay_OnTurnComplete_RealOpenAIStream_FirstTokenMs(t *testing.T) {
 	require.NotNil(t, result.FirstTokenMs)
 	require.Greater(t, *result.FirstTokenMs, 0)
 }
+
+func TestRelaySingleTurnPreservesDownstreamAndPendingRequest(t *testing.T) {
+	client := newPassthroughTestFrameConn([]passthroughTestFrame{{msgType: coderws.MessageText, payload: []byte(`{"type":"response.create","input":"next"}`)}}, false)
+	upstream := newPassthroughTestFrameConn([]passthroughTestFrame{{msgType: coderws.MessageText, payload: []byte(`{"type":"response.completed","response":{"id":"warmup","usage":{"input_tokens":1,"output_tokens":0}}}`)}}, false)
+	result, exit := Relay(context.Background(), client, upstream, []byte(`{"type":"response.create","generate":false}`), RelayOptions{SingleTurn: true})
+	require.Nil(t, exit)
+	require.Equal(t, "warmup", result.RequestID)
+	require.Len(t, upstream.writes, 1)
+	require.Len(t, client.writes, 1)
+	_, next, err := client.ReadFrame(context.Background())
+	require.NoError(t, err)
+	require.Contains(t, string(next), "next")
+	select {
+	case _, ok := <-client.readCh:
+		require.True(t, ok, "downstream was closed")
+	default:
+	}
+}

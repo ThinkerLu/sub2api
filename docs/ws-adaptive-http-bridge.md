@@ -80,3 +80,11 @@ pnpm exec vitest run src/utils/__tests__/adaptiveWs.spec.ts src/utils/__tests__/
 - 后端：相关 ingress/桥接/passthrough 回归通过；repository、config、migrations、DTO 和 admin 包全量单元测试通过。
 - race：包含大于 64 MiB 消息的 adaptive/handler 测试通过；补充的桥接取消、阈值边界及旧 HTTP bridge 回归通过。
 - 新模式压缩后存活堆增量在大请求样本中约 1.7～1.8 MiB；65 MiB 样本峰值堆增量约 455 MiB，旧路径约 524 MiB，均包含测试客户端。
+
+## 2026-09-11：预热帧修复
+
+生产任务 01a08eeb-4cc1-7730-bab6-1650a6fc18bc 暴露“小预热 → 大正式请求”序列。显式 generate=false 不再提交持续 passthrough 状态：预热以真实上游 WS 单轮执行，终止事件交付完毕后退出上游 relay，保持客户端 WS，保存有限于预热/桥接阶段的上下文及响应 ID。下一正式轮仍按实际完整字节数选 WS/HTTP。
+
+SingleTurn relay 不启动客户端读协程，避免消耗已到达的下一帧；原 adaptive reader 继续负责断开、超时和重叠请求检查。逐轮 AfterTurn 只由桥接循环提交一次，预热上游协议记录为 WS，后续桥接为 HTTP。输出收集使用既有工具/推理/消息恢复收集器。
+
+正常小正式首帧不新增历史缓存；预热后的小正式请求会新建上游WS，增加一次握手。超阈值 generate=false 预热明确拒绝，因为现有 HTTP 链路不具备该语义，不能将其改成实际生成；业务大请求和 >64 MiB 接收规则不变。仅凭 output_tokens=0 不判定预热。

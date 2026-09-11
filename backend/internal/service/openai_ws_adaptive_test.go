@@ -337,3 +337,162 @@ func TestAdaptiveThresholdBoundary(t *testing.T) {
 		})
 	}
 }
+
+func TestAdaptiveWarmupDoesNotCommitPassthrough(t *testing.T) {
+	s, a, ws, httpUp := adaptiveFixture()
+	server, errs := startAdaptiveServer(t, s, a, nil)
+	client := dialAdaptive(t, server)
+	writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","generate":false,"input":[{"role":"user","content":"warmup context"}]}`)
+	sent := requirePassthroughUpstreamWrite(t, ws, 3*time.Second)
+	require.Equal(t, gjson.False, gjson.GetBytes(sent, "generate").Type)
+	ws.Send(`{"type":"response.completed","response":{"id":"resp_warmup","model":"gpt-5.1","output":[],"usage":{"input_tokens":10,"output_tokens":0}}}`)
+	readAdaptiveCompleted(t, client)
+	writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","previous_response_id":"resp_warmup","input":[{"role":"user","content":"`+strings.Repeat("x", 2048)+`"}]}`)
+	require.Eventually(t, func() bool { return len(httpUp.snapshot()) == 1 }, 3*time.Second, time.Millisecond, "business request must reach HTTP without client reconnect")
+	readAdaptiveCompleted(t, client)
+	requests := httpUp.snapshot()
+	require.Contains(t, string(requests[0]), "warmup context")
+	require.False(t, gjson.GetBytes(requests[0], "previous_response_id").Exists())
+	require.False(t, gjson.GetBytes(requests[0], "generate").Exists())
+	_ = client.CloseNow()
+	select {
+	case <-errs:
+	case <-time.After(3 * time.Second):
+		t.Fatal("session did not exit")
+	}
+}
+
+type adaptiveWarmupDialer struct{ conns chan *stagedPassthroughConn }
+
+func (d *adaptiveWarmupDialer) Dial(ctx context.Context, _ string, _ http.Header, _ string) (openAIWSClientConn, int, http.Header, error) {
+	select {
+	case c := <-d.conns:
+		return c, 101, http.Header{}, nil
+	case <-ctx.Done():
+		return nil, 0, nil, ctx.Err()
+	}
+}
+
+func TestAdaptiveWarmupLargeBusinessCompaction(t *testing.T) {
+	s, a, ws, httpUp := adaptiveFixture()
+	resumed := newStagedPassthroughConn()
+	d := &adaptiveWarmupDialer{conns: make(chan *stagedPassthroughConn, 2)}
+	d.conns <- ws
+	d.conns <- resumed
+	s.openaiWSPassthroughDialer = d
+	s.cfg.Gateway.OpenAIWS.IngressInterTurnIdleTimeoutSeconds = 30
+	s.cfg.Gateway.OpenAIFirstOutputTimeoutSeconds = 30
+	var mu sync.Mutex
+	var rounds []int
+	var transports []bool
+	hooks := &OpenAIWSIngressHooks{AfterTurn: func(n int, r *OpenAIForwardResult, e error) {
+		if e == nil && r != nil {
+			mu.Lock()
+			defer mu.Unlock()
+			rounds = append(rounds, n)
+			transports = append(transports, r.OpenAIWSHTTPBridge)
+		}
+	}}
+	server, errs := startAdaptiveServer(t, s, a, hooks)
+	client := dialAdaptive(t, server)
+	writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","generate":false,"input":"warmup"}`)
+	requirePassthroughUpstreamWrite(t, ws, 3*time.Second)
+	ws.Send(`{"type":"response.completed","response":{"id":"resp_warmup","output":[],"usage":{"input_tokens":2,"output_tokens":0}}}`)
+	readAdaptiveCompleted(t, client)
+	// A restored full request replaces the prewarm context and exceeds the old 64 MiB limit.
+	writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","input":"`+strings.Repeat("x", 65*1024*1024)+`"}`)
+	readAdaptiveCompleted(t, client)
+	require.Len(t, httpUp.snapshot(), 1)
+	require.NotContains(t, string(httpUp.snapshot()[0]), "warmup")
+	writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","input":[{"type":"compaction","encrypted_content":"short"}]}`)
+	requirePassthroughUpstreamWrite(t, resumed, 3*time.Second)
+	resumed.Send(`{"type":"response.completed","response":{"id":"resp_resumed","usage":{"input_tokens":5,"output_tokens":1}}}`)
+	readAdaptiveCompleted(t, client)
+	writeAdaptive(t, client, `{"type":"response.create","previous_response_id":"resp_resumed","input":"next"}`)
+	requirePassthroughUpstreamWrite(t, resumed, 3*time.Second)
+	resumed.Send(`{"type":"response.completed","response":{"id":"resp_next","usage":{"input_tokens":6,"output_tokens":1}}}`)
+	readAdaptiveCompleted(t, client)
+	require.Eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return len(rounds) == 4 }, time.Second, time.Millisecond)
+	mu.Lock()
+	require.Equal(t, []int{1, 2, 3, 4}, rounds)
+	require.Equal(t, []bool{false, true, false, false}, transports)
+	mu.Unlock()
+	_ = client.CloseNow()
+	select {
+	case <-errs:
+	case <-time.After(3 * time.Second):
+		t.Fatal("session did not exit")
+	}
+}
+
+func TestAdaptiveWarmupFailureDoesNotStartHTTP(t *testing.T) {
+	s, a, ws, httpUp := adaptiveFixture()
+	server, errs := startAdaptiveServer(t, s, a, nil)
+	client := dialAdaptive(t, server)
+	writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","generate":false,"input":"warmup"}`)
+	requirePassthroughUpstreamWrite(t, ws, 3*time.Second)
+	ws.Send(`{"type":"response.failed","response":{"id":"resp_bad","error":{"code":"invalid_request_error","message":"bad request"},"usage":{"input_tokens":2,"output_tokens":0}}}`)
+	select {
+	case err := <-errs:
+		require.Error(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("failed warmup did not terminate")
+	}
+	require.Empty(t, httpUp.snapshot())
+	_ = client.CloseNow()
+}
+
+func TestAdaptiveWarmupSmallBusinessAndCancellation(t *testing.T) {
+	for _, scenario := range []string{"small", "disconnect", "overlap", "oversized_warmup"} {
+		t.Run(scenario, func(t *testing.T) {
+			s, a, ws, httpUp := adaptiveFixture()
+			next := newStagedPassthroughConn()
+			d := &adaptiveWarmupDialer{conns: make(chan *stagedPassthroughConn, 2)}
+			d.conns <- ws
+			d.conns <- next
+			s.openaiWSPassthroughDialer = d
+			server, errs := startAdaptiveServer(t, s, a, nil)
+			client := dialAdaptive(t, server)
+			input := "seed"
+			if scenario == "oversized_warmup" {
+				input = strings.Repeat("x", 2048)
+			}
+			writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","generate":false,"input":"`+input+`"}`)
+			if scenario != "oversized_warmup" {
+				requirePassthroughUpstreamWrite(t, ws, 3*time.Second)
+			}
+			switch scenario {
+			case "small":
+				ws.Send(`{"type":"response.completed","response":{"id":"resp_seed","output":[],"usage":{"input_tokens":1,"output_tokens":0}}}`)
+				readAdaptiveCompleted(t, client)
+				writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","previous_response_id":"resp_seed","input":"business"}`)
+				p := requirePassthroughUpstreamWrite(t, next, 3*time.Second)
+				require.Contains(t, string(p), "seed")
+				require.Contains(t, string(p), "business")
+				require.False(t, gjson.GetBytes(p, "generate").Exists())
+				require.False(t, gjson.GetBytes(p, "previous_response_id").Exists())
+				next.Send(`{"type":"response.completed","response":{"id":"resp_business","usage":{"input_tokens":2,"output_tokens":1}}}`)
+				readAdaptiveCompleted(t, client)
+				_ = client.CloseNow()
+			case "disconnect":
+				_ = client.CloseNow()
+			case "overlap":
+				writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","input":"overlap"}`)
+				readCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				_, _, readErr := client.Read(readCtx)
+				cancel()
+				require.Error(t, readErr)
+			}
+			select {
+			case err := <-errs:
+				if scenario == "overlap" || scenario == "oversized_warmup" {
+					require.Error(t, err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("session did not exit")
+			}
+			require.Empty(t, httpUp.snapshot())
+			_ = client.CloseNow()
+		})
+	}
+}
