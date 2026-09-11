@@ -88,3 +88,9 @@ pnpm exec vitest run src/utils/__tests__/adaptiveWs.spec.ts src/utils/__tests__/
 SingleTurn relay 不启动客户端读协程，避免消耗已到达的下一帧；原 adaptive reader 继续负责断开、超时和重叠请求检查。逐轮 AfterTurn 只由桥接循环提交一次，预热上游协议记录为 WS，后续桥接为 HTTP。输出收集使用既有工具/推理/消息恢复收集器。
 
 正常小正式首帧不新增历史缓存；预热后的小正式请求会新建上游WS，增加一次握手。超阈值 generate=false 预热明确拒绝，因为现有 HTTP 链路不具备该语义，不能将其改成实际生成；业务大请求和 >64 MiB 接收规则不变。仅凭 output_tokens=0 不判定预热。
+
+### WS generate 日志
+
+新增 INFO 事件 `openai.websocket_request_metadata`，首帧和后续审核入口均记录，即使审核未启用也会输出。日志沿用请求关联 ID，并包含 `stage`、`ws_turn`、`model`、`body_bytes`、`generate_present`、`generate_type`、`generate`、`ws_warmup`。
+
+显式布尔 false 才标记 `ws_warmup=true`；缺省字段为 `generate_present=false, generate_type=missing, generate=null`，显式 null 的 present=true。布尔值记录原值；非法非布尔输入仅记录类型，generate=null，不输出任意字符串或结构正文。字段逐次从当轮请求读取，不沿用前一轮的预热标记。

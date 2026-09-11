@@ -180,3 +180,35 @@ func (e *turnCountingEngine) Evaluate(context.Context, securityaudit.Request) (*
 	}
 	return &securityaudit.PromptDecision{Kind: securityaudit.DecisionAllow, AllowNextStage: true}, nil
 }
+
+func TestWSGenerateMetadataSurvivesDisabledAuditWithoutLeakingAcrossTurns(t *testing.T) {
+	core, logs := observer.New(zap.InfoLevel)
+	logger := zap.New(core).With(zap.String("request_id", "ws-session"))
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	h := &OpenAIGatewayHandler{}
+	for i, body := range []string{`{"generate":false}`, `{}`, `{"generate":true}`, `{"generate":null}`, `{"generate":"not-a-boolean"}`} {
+		stage := "subsequent_turn"
+		if i == 0 {
+			stage = "first_turn"
+		}
+		c.Set(securityAuditWSTurnContextKey, i+1)
+		h.checkSecurityAuditStage(c, logger, nil, middleware2.AuthSubject{}, "openai_responses", "gpt-test", []byte(body), stage)
+	}
+	entries := logs.FilterMessage("openai.websocket_request_metadata").All()
+	require.Len(t, entries, 5)
+	for i, entry := range entries {
+		fields := entry.ContextMap()
+		require.Equal(t, "ws-session", fields["request_id"])
+		require.Equal(t, int64(i+1), fields["ws_turn"])
+		require.Equal(t, i == 0, fields["ws_warmup"])
+	}
+	require.Equal(t, false, entries[0].ContextMap()["generate"])
+	require.Equal(t, false, entries[1].ContextMap()["generate_present"])
+	require.Nil(t, entries[1].ContextMap()["generate"])
+	require.Equal(t, true, entries[2].ContextMap()["generate"])
+	require.Equal(t, true, entries[3].ContextMap()["generate_present"])
+	require.Equal(t, "null", entries[3].ContextMap()["generate_type"])
+	require.Equal(t, "string", entries[4].ContextMap()["generate_type"])
+	require.Nil(t, entries[4].ContextMap()["generate"])
+}

@@ -9,6 +9,7 @@ import (
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -62,7 +63,45 @@ func (h *OpenAIGatewayHandler) checkSecurityAuditStage(c *gin.Context, reqLog *z
 	if h == nil {
 		return nil
 	}
+	// Record request intent even when auditing is disabled.
+	if isSecurityAuditWebSocketStage(stage) && reqLog != nil {
+		logOpenAIWSRequestMetadata(c, reqLog, model, body, stage)
+	}
 	return runSecurityAudit(c, reqLog, h.securityAuditCoordinator, h.contentModerationService, apiKey, subject, protocol, model, body, stage)
+}
+
+// Do not infer warmup from a missing generate field or a zero-output response.
+// Invalid non-boolean values are identified by type, never logged as request content.
+func logOpenAIWSRequestMetadata(c *gin.Context, logger *zap.Logger, model string, body []byte, stage string) {
+	generate := gjson.GetBytes(body, "generate")
+	var value any
+	kind := "missing"
+	if generate.Exists() {
+		kind = strings.ToLower(generate.Type.String())
+		if generate.Type == gjson.True || generate.Type == gjson.False {
+			kind = "boolean"
+			value = generate.Bool()
+		} else if generate.Type == gjson.JSON {
+			if generate.IsArray() {
+				kind = "array"
+			} else {
+				kind = "object"
+			}
+		}
+	}
+	fields := []zap.Field{
+		zap.String("stage", stage), zap.String("model", model), zap.Int("body_bytes", len(body)),
+		zap.Bool("generate_present", generate.Exists()), zap.String("generate_type", kind),
+		zap.Any("generate", value), zap.Bool("ws_warmup", generate.Type == gjson.False),
+	}
+	if stage == "first_turn" {
+		fields = append(fields, zap.Int("ws_turn", 1))
+	} else if c != nil {
+		if turn, ok := securityAuditWSTurn(c); ok {
+			fields = append(fields, zap.Int("ws_turn", turn))
+		}
+	}
+	logger.Info("openai.websocket_request_metadata", fields...)
 }
 
 func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securityaudit.Coordinator, legacy *service.ContentModerationService, apiKey *service.APIKey, subject middleware2.AuthSubject, protocol, model string, body []byte, stage string) *securityaudit.Decision {
