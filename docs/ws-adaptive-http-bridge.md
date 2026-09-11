@@ -87,10 +87,34 @@ pnpm exec vitest run src/utils/__tests__/adaptiveWs.spec.ts src/utils/__tests__/
 
 SingleTurn relay 不启动客户端读协程，避免消耗已到达的下一帧；原 adaptive reader 继续负责断开、超时和重叠请求检查。逐轮 AfterTurn 只由桥接循环提交一次，预热上游协议记录为 WS，后续桥接为 HTTP。输出收集使用既有工具/推理/消息恢复收集器。
 
-正常小正式首帧不新增历史缓存；预热后的小正式请求会新建上游WS，增加一次握手。超阈值 generate=false 预热明确拒绝，因为现有 HTTP 链路不具备该语义，不能将其改成实际生成；业务大请求和 >64 MiB 接收规则不变。仅凭 output_tokens=0 不判定预热。
+正常小正式首帧不新增历史缓存；预热完成后保留上游 WS，正式请求低于阈值时复用该连接，避免额外握手。超阈值 generate=false 预热明确拒绝，因为现有 HTTP 链路不具备该语义，不能将其改成实际生成；业务大请求和 >64 MiB 接收规则不变。仅凭 output_tokens=0 不判定预热。
 
 ### WS generate 日志
 
 新增 INFO 事件 `openai.websocket_request_metadata`，首帧和后续审核入口均记录，即使审核未启用也会输出。日志沿用请求关联 ID，并包含 `stage`、`ws_turn`、`model`、`body_bytes`、`generate_present`、`generate_type`、`generate`、`ws_warmup`。
 
 显式布尔 false 才标记 `ws_warmup=true`；缺省字段为 `generate_present=false, generate_type=missing, generate=null`，显式 null 的 present=true。布尔值记录原值；非法非布尔输入仅记录类型，generate=null，不输出任意字符串或结构正文。字段逐次从当轮请求读取，不沿用前一轮的预热标记。
+
+
+## 2026-09-11：延迟决定预热连接去留
+
+预热不再主动关闭上游 WS。连接由当前 adaptive 会话持有，连续多个 `generate=false` 轮次使用同一连接；直到正式请求到来才确定持续 passthrough 或 HTTP 桥接。
+
+- 正式请求的恢复后完整正文及实际待发送 WS 帧均低于阈值：复用预热连接，保留客户端的 `previous_response_id` 与增量 input，避免历史重复。切换轮成功后释放桥接历史，后续持续 passthrough。
+- 正式请求达到阈值：先关闭预热连接，再将恢复后的完整请求发往 HTTP；客户端 WS 保持连接。之后压缩回阈值内时新建上游 WS。
+- 完整上下文仍可替换历史；没有响应引用但需要补齐工具上下文时发送恢复后的完整请求。未知响应引用仍明确失败。
+- 单轮 relay 成功且未取消时才保留上游；连接断开、超时、审核拒绝、上游失败及会话退出都释放连接。不会因复用失败透明重发已经输出的轮次。
+- 复用遵循持续 passthrough 的同连接逐轮模型语义；不跨客户端连接或账号复用。日志 `relay_connection_selected` 的 `reused`、`warmup` 区分复用与预热，原 `openai.websocket_request_metadata` 日志继续保留。
+
+新增回归覆盖小正式请求复用、连续三次预热后的小请求/大请求/空闲超时/客户端断开/上游失败，并使用真实 coder/websocket 上游验证两次预热、正式请求和后续增量只建一次连接。原 65 MiB 大请求与压缩恢复测试继续覆盖。
+
+复现与验证命令（在 `backend` 目录执行；本机 Go 为 `/tmp/sub2api-oom-toolchain127/go/bin/go`）：
+
+```sh
+go test -race ./internal/service ./internal/service/openai_ws_v2 ./internal/handler \
+  -run 'TestAdaptive|TestRelay|TestRunUpstreamToClient|TestOpenAIWS.*(Ingress|Passthrough|Adaptive)|TestResponsesWebSocket|TestWSGenerateMetadata' -count=1
+```
+
+修复前，将小正式请求测试改为断言原连接收到请求，会报 `passthrough request was not forwarded upstream`；修复后该测试通过。真实上游测试 `TestAdaptiveWarmupReusesRealWebSocket` 明确断言四轮请求仅调用一次 dial。
+
+本次本地验证通过：`internal/service` 49.016s、`internal/service/openai_ws_v2` 4.054s、`internal/handler` 52.557s，均启用 race 检测；`git diff --check` 通过。本次改动不涉及前端、数据库或部署脚本，之前上传的 `4fb1820b7` 安装包不包含此优化。

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -466,12 +467,13 @@ func TestAdaptiveWarmupSmallBusinessAndCancellation(t *testing.T) {
 				ws.Send(`{"type":"response.completed","response":{"id":"resp_seed","output":[],"usage":{"input_tokens":1,"output_tokens":0}}}`)
 				readAdaptiveCompleted(t, client)
 				writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","previous_response_id":"resp_seed","input":"business"}`)
-				p := requirePassthroughUpstreamWrite(t, next, 3*time.Second)
-				require.Contains(t, string(p), "seed")
+				p := requirePassthroughUpstreamWrite(t, ws, 3*time.Second)
+				require.NotContains(t, gjson.GetBytes(p, "input").String(), "seed")
 				require.Contains(t, string(p), "business")
 				require.False(t, gjson.GetBytes(p, "generate").Exists())
-				require.False(t, gjson.GetBytes(p, "previous_response_id").Exists())
-				next.Send(`{"type":"response.completed","response":{"id":"resp_business","usage":{"input_tokens":2,"output_tokens":1}}}`)
+				require.Equal(t, "resp_seed", gjson.GetBytes(p, "previous_response_id").String())
+				require.Len(t, d.conns, 1, "small business must reuse the warmup socket")
+				ws.Send(`{"type":"response.completed","response":{"id":"resp_business","usage":{"input_tokens":2,"output_tokens":1}}}`)
 				readAdaptiveCompleted(t, client)
 				_ = client.CloseNow()
 			case "disconnect":
@@ -494,5 +496,177 @@ func TestAdaptiveWarmupSmallBusinessAndCancellation(t *testing.T) {
 			require.Empty(t, httpUp.snapshot())
 			_ = client.CloseNow()
 		})
+	}
+}
+
+// Repeated generate=false requests remain provisional and share one upstream.
+func TestAdaptiveRepeatedWarmupsRetainSocketUntilBusiness(t *testing.T) {
+	for _, scenario := range []string{"small", "large", "idle", "disconnect", "failure"} {
+		t.Run(scenario, func(t *testing.T) {
+			s, a, ws, httpUp := adaptiveFixture()
+			d := &adaptiveWarmupDialer{conns: make(chan *stagedPassthroughConn, 1)}
+			d.conns <- ws
+			s.openaiWSPassthroughDialer = d
+			s.cfg.Gateway.OpenAIWS.IngressInterTurnIdleTimeoutSeconds = 1
+			var mu sync.Mutex
+			var turns []int
+			hooks := &OpenAIWSIngressHooks{AfterTurn: func(n int, _ *OpenAIForwardResult, _ error) { mu.Lock(); turns = append(turns, n); mu.Unlock() }}
+			server, errs := startAdaptiveServer(t, s, a, hooks)
+			client := dialAdaptive(t, server)
+			for n := 1; n <= 3; n++ {
+				ref := ""
+				if n > 1 {
+					ref = fmt.Sprintf(`,"previous_response_id":"resp_warm_%d"`, n-1)
+				}
+				writeAdaptive(t, client, fmt.Sprintf(`{"type":"response.create","model":"gpt-5.1","generate":false,"input":"seed%d"%s}`, n, ref))
+				p := requirePassthroughUpstreamWrite(t, ws, 3*time.Second)
+				require.Equal(t, fmt.Sprintf("seed%d", n), gjson.GetBytes(p, "input").String())
+				if n > 1 {
+					require.Equal(t, fmt.Sprintf("resp_warm_%d", n-1), gjson.GetBytes(p, "previous_response_id").String())
+				}
+				ws.Send(fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_warm_%d","output":[],"usage":{"input_tokens":1,"output_tokens":0}}}`, n))
+				readAdaptiveCompleted(t, client)
+				select {
+				case <-ws.closed:
+					t.Fatal("warmup closed the reusable socket")
+				default:
+				}
+			}
+			switch scenario {
+			case "small", "large", "failure":
+				input := "business"
+				if scenario == "large" {
+					input = strings.Repeat("x", 2048)
+				}
+				writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","previous_response_id":"resp_warm_3","input":"`+input+`"}`)
+				if scenario == "large" {
+					readAdaptiveCompleted(t, client)
+					require.Len(t, httpUp.snapshot(), 1)
+					for n := 1; n <= 3; n++ {
+						require.Contains(t, string(httpUp.snapshot()[0]), fmt.Sprintf("seed%d", n))
+					}
+					select {
+					case <-ws.closed:
+					default:
+						t.Fatal("HTTP selection must release warmup socket")
+					}
+				} else {
+					p := requirePassthroughUpstreamWrite(t, ws, 3*time.Second)
+					require.Equal(t, "resp_warm_3", gjson.GetBytes(p, "previous_response_id").String())
+					require.Equal(t, "business", gjson.GetBytes(p, "input").String())
+					if scenario == "failure" {
+						_ = ws.Close()
+					} else {
+						ws.Send(`{"type":"response.completed","response":{"id":"resp_business","usage":{"input_tokens":4,"output_tokens":1}}}`)
+						readAdaptiveCompleted(t, client)
+					}
+				}
+				_ = client.CloseNow()
+			case "disconnect":
+				_ = client.CloseNow()
+			case "idle":
+				ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+				_, _, err := client.Read(ctx)
+				cancel()
+				require.Error(t, err)
+			}
+			select {
+			case <-errs:
+			case <-time.After(4 * time.Second):
+				t.Fatal("session did not exit")
+			}
+			select {
+			case <-ws.closed:
+			default:
+				t.Fatal("session exit leaked warmup socket")
+			}
+			if scenario != "large" {
+				require.Empty(t, httpUp.snapshot())
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			require.GreaterOrEqual(t, len(turns), 3)
+			for i, n := range turns {
+				require.Equal(t, i+1, n)
+			}
+		})
+	}
+}
+
+// Exercise coder/websocket as well as the staged transport: cancelling a live
+// Read can close a real socket, so successful SingleTurn must leave no read behind.
+type adaptiveLocalDialer struct {
+	url   string
+	calls atomic.Int32
+}
+
+func (d *adaptiveLocalDialer) Dial(ctx context.Context, _ string, h http.Header, _ string) (openAIWSClientConn, int, http.Header, error) {
+	d.calls.Add(1)
+	return newDefaultOpenAIWSClientDialer().Dial(ctx, d.url, h, "")
+}
+
+func TestAdaptiveWarmupReusesRealWebSocket(t *testing.T) {
+	received := make(chan []byte, 8)
+	upstreamDone := make(chan struct{}, 2)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := coderws.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow(); upstreamDone <- struct{}{} }()
+		for n := 1; ; n++ {
+			_, p, err := conn.Read(r.Context())
+			if err != nil {
+				return
+			}
+			received <- p
+			output := 0
+			if gjson.GetBytes(p, "generate").Type != gjson.False {
+				output = 1
+			}
+			response := fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_real_%d","output":[],"usage":{"input_tokens":1,"output_tokens":%d}}}`, n, output)
+			if conn.Write(r.Context(), coderws.MessageText, []byte(response)) != nil {
+				return
+			}
+		}
+	}))
+	defer upstream.Close()
+	s, a, _, httpUp := adaptiveFixture()
+	d := &adaptiveLocalDialer{url: "ws" + strings.TrimPrefix(upstream.URL, "http")}
+	s.openaiWSPassthroughDialer = d
+	server, errs := startAdaptiveServer(t, s, a, nil)
+	client := dialAdaptive(t, server)
+	for n := 1; n <= 4; n++ {
+		extra := ""
+		if n <= 2 {
+			extra += `,"generate":false`
+		}
+		if n > 1 {
+			extra += fmt.Sprintf(`,"previous_response_id":"resp_real_%d"`, n-1)
+		}
+		writeAdaptive(t, client, fmt.Sprintf(`{"type":"response.create","model":"gpt-5.1","input":"turn%d"%s}`, n, extra))
+		readAdaptiveCompleted(t, client)
+		select {
+		case p := <-received:
+			require.Equal(t, fmt.Sprintf("turn%d", n), gjson.GetBytes(p, "input").String())
+			if n > 1 {
+				require.Equal(t, fmt.Sprintf("resp_real_%d", n-1), gjson.GetBytes(p, "previous_response_id").String())
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("upstream did not receive request")
+		}
+	}
+	require.EqualValues(t, 1, d.calls.Load())
+	require.Empty(t, httpUp.snapshot())
+	_ = client.CloseNow()
+	select {
+	case <-errs:
+	case <-time.After(4 * time.Second):
+		t.Fatal("session did not exit")
+	}
+	select {
+	case <-upstreamDone:
+	case <-time.After(4 * time.Second):
+		t.Fatal("upstream connection leaked")
 	}
 }

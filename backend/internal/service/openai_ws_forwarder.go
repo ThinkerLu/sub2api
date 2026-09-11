@@ -243,6 +243,7 @@ func (e *OpenAIWSClientCloseError) Reason() string {
 
 // OpenAIWSIngressHooks 定义入站 WS 每个 turn 的生命周期回调。
 type OpenAIWSIngressHooks struct {
+	adaptiveUpstream        *openAIWSAdaptiveUpstream
 	adaptiveWarmup          bool
 	adaptiveWarmupCollector *openAIWSToolCallReplayCollector
 	// initialPayloadPrepared is internal: the adaptive bridge already applied first-turn policy.

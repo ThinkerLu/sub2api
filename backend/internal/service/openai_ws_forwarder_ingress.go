@@ -693,18 +693,25 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 				if candidateErr != nil {
 					return candidateErr
 				}
+				// A retained socket already owns referenced history. Do not combine a
+				// restored full input with the same previous_response_id on that socket.
+				wsPayload := candidate
+				if hooks != nil && hooks.adaptiveUpstream != nil && hooks.adaptiveUpstream.conn != nil && (!needsBridgeReplay || currentBridgePayload.previousResponseID != "") {
+					wsPayload = currentBridgePayload.payloadRaw
+				}
+				fitsWS := int64(len(candidate)) < s.openAIWSHTTPBridgeThresholdBytes() && int64(len(wsPayload)) < s.openAIWSHTTPBridgeThresholdBytes()
 				if warmup {
-					if int64(len(candidate)) >= s.openAIWSHTTPBridgeThresholdBytes() {
+					if !fitsWS {
 						return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "adaptive warmup exceeds WS threshold; send a full generating request", nil)
 					}
-					bridgePayloadRaw = candidate
-				} else if int64(len(candidate)) < s.openAIWSHTTPBridgeThresholdBytes() {
+					bridgePayloadRaw = wsPayload
+				} else if fitsWS {
 					coverage := AnalyzeToolCallOutputContextCoverageBytes(candidate)
 					if coverage.HasFunctionCallOutput && !coverage.ContextCoversAllCallIDs {
 						return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "adaptive bridge requires complete tool context", nil)
 					}
 					logOpenAIWSModeInfo("ingress_ws_adaptive_handoff account_id=%d turn=%d payload_bytes=%d threshold_bytes=%d", account.ID, turn, len(candidate), s.openAIWSHTTPBridgeThresholdBytes())
-					return &openAIWSAdaptiveHandoff{payload: candidate, originalModel: currentBridgePayload.originalModel, requestedReasoningEffort: currentBridgePayload.requestedReasoningEffort, turn: turn, startedAt: turnStartedAt, history: turnReplayInput}
+					return &openAIWSAdaptiveHandoff{payload: wsPayload, originalModel: currentBridgePayload.originalModel, requestedReasoningEffort: currentBridgePayload.requestedReasoningEffort, turn: turn, startedAt: turnStartedAt, history: turnReplayInput}
 				}
 			}
 			grokCacheIdentity := ""
@@ -725,6 +732,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 			if warmup {
 				result, bridgeErr = s.proxyOpenAIWSAdaptiveWarmup(ctx, c, clientConn, account, token, bridgePayloadRaw, hooks, &openAIWSAdaptiveHandoff{originalModel: currentBridgePayload.originalModel, requestedReasoningEffort: currentBridgePayload.requestedReasoningEffort, turn: turn, startedAt: turnStartedAt})
 			} else {
+				if hooks != nil {
+					hooks.adaptiveUpstream.close()
+				}
 				result, bridgeErr = s.proxyOpenAIWSHTTPBridgeTurn(
 					ctx,
 					c,

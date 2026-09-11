@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -37,6 +38,22 @@ func (s *OpenAIGatewayService) OpenAIWSAdaptiveRouteAvailable(ctx context.Contex
 	return false, nil
 }
 
+// The adaptive session owns the warmup socket until HTTP is selected or the
+// session ends. All access is sequential, after the previous relay has joined.
+type openAIWSAdaptiveUpstream struct {
+	conn    openAIWSClientConn
+	status  int
+	headers http.Header
+}
+
+func (u *openAIWSAdaptiveUpstream) close() {
+	if u != nil && u.conn != nil {
+		_ = u.conn.Close()
+		u.conn = nil
+		u.headers = nil
+	}
+}
+
 // Returning a handoff unwinds the bridge loop before starting the long-lived
 // relay, so its local payloads/closures cannot retain pre-compaction history.
 type openAIWSAdaptiveHandoff struct {
@@ -56,6 +73,13 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(ctx context.Con
 	}
 	reader, _ := ctx.Value(openAIWSAdaptiveReaderKey{}).(*openAIWSAdaptiveReader)
 	if s.IsOpenAIWSAdaptive(account) && clientConn != nil {
+		copied := OpenAIWSIngressHooks{}
+		if hooks != nil {
+			copied = *hooks
+		}
+		copied.adaptiveUpstream = &openAIWSAdaptiveUpstream{}
+		hooks = &copied
+		defer copied.adaptiveUpstream.close()
 		clientConn.SetReadLimit(-1)
 		if reader == nil {
 			var cleanup func()

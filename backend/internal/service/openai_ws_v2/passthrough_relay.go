@@ -71,7 +71,10 @@ type RelayExit struct {
 
 type RelayOptions struct {
 	// SingleTurn leaves the downstream open after one terminal event and never reads its next request.
-	SingleTurn                      bool
+	SingleTurn bool
+	// RetainUpstreamOnSingleTurn transfers a completed single-turn socket back to its caller.
+	// Errors and cancellation still close it. The caller must eventually close it.
+	RetainUpstreamOnSingleTurn      bool
 	WriteTimeout                    time.Duration
 	IdleTimeout                     time.Duration
 	UpstreamDrainTimeout            time.Duration
@@ -347,6 +350,7 @@ func Relay(
 			WroteDownstream: firstExit.wroteDownstream,
 		})
 	}
+	retainUpstream := options.SingleTurn && options.RetainUpstreamOnSingleTurn && firstExit.stage == "single_turn_completed" && ctx.Err() == nil
 	combinedWroteDownstream := firstExit.wroteDownstream
 	secondExit := relayExitSignal{graceful: true}
 	hasSecondExit := false
@@ -357,7 +361,9 @@ func Relay(
 		secondExit, hasSecondExit = waitRelayExit(exitCh, drainTimeout)
 	} else {
 		relayCancel()
-		_ = upstreamConn.Close()
+		if !retainUpstream {
+			_ = upstreamConn.Close()
+		}
 		if clientReaderStarted.Load() {
 			secondExit, hasSecondExit = waitRelayExit(exitCh, 200*time.Millisecond)
 		}
@@ -374,7 +380,9 @@ func Relay(
 	}
 
 	relayCancel()
-	_ = upstreamConn.Close()
+	if !retainUpstream {
+		_ = upstreamConn.Close()
+	}
 	// ReadFrame observes relayCtx cancellation and Close is the transport-level
 	// fallback. Join the reader before touching relayState or firing the final
 	// turn callback; otherwise a late read can race Relay's result settlement.

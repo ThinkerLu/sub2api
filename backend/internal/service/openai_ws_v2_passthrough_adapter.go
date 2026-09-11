@@ -893,7 +893,15 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	var upstreamConn openAIWSClientConn
 	statusCode := 0
 	var handshakeHeaders http.Header
-	for {
+	var retained *openAIWSAdaptiveUpstream
+	if hooks != nil {
+		retained = hooks.adaptiveUpstream
+	}
+	reused := retained != nil && retained.conn != nil
+	if reused {
+		upstreamConn, statusCode, handshakeHeaders = retained.conn, retained.status, retained.headers
+	}
+	for !reused {
 		headers, err = s.refreshOpenAIAgentIdentityHeaders(ctx, account, headers)
 		if err != nil {
 			return fmt.Errorf("refresh ws authentication headers: %w", err)
@@ -930,15 +938,25 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		}
 		return s.mapOpenAIWSPassthroughDialError(err, statusCode, handshakeHeaders)
 	}
+	if retained != nil {
+		retained.conn, retained.status, retained.headers = upstreamConn, statusCode, handshakeHeaders
+	}
 	defer func() {
-		_ = upstreamConn.Close()
+		if retained == nil {
+			_ = upstreamConn.Close()
+		} else if !hooks.adaptiveWarmup {
+			retained.close()
+		}
 	}()
-	logOpenAIWSV2Passthrough(
-		"relay_dial_ok account_id=%d status_code=%d upstream_request_id=%s",
-		account.ID,
-		statusCode,
-		openAIWSHeaderValueForLog(handshakeHeaders, "x-request-id"),
-	)
+	logOpenAIWSV2Passthrough("relay_connection_selected account_id=%d reused=%v warmup=%v", account.ID, reused, hooks != nil && hooks.adaptiveWarmup)
+	if !reused {
+		logOpenAIWSV2Passthrough(
+			"relay_dial_ok account_id=%d status_code=%d upstream_request_id=%s",
+			account.ID,
+			statusCode,
+			openAIWSHeaderValueForLog(handshakeHeaders, "x-request-id"),
+		)
+	}
 
 	upstreamFrameConn, ok := upstreamConn.(openaiwsv2.FrameConn)
 	if !ok {
@@ -1199,9 +1217,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		UpstreamConn:       relayUpstreamFrameConn,
 		FirstClientMessage: firstClientMessage,
 		Options: openaiwsv2.RelayOptions{
-			SingleTurn:         hooks != nil && hooks.adaptiveWarmup,
-			WriteTimeout:       s.openAIWSWriteTimeout(),
-			FirstTurnStartedAt: firstTurnStartedAt,
+			SingleTurn:                 hooks != nil && hooks.adaptiveWarmup,
+			RetainUpstreamOnSingleTurn: retained != nil,
+			WriteTimeout:               s.openAIWSWriteTimeout(),
+			FirstTurnStartedAt:         firstTurnStartedAt,
 			TakeNextTurnStartedAt: func() time.Time {
 				startedAt := acceptedTurnStartedAt.Swap(nil)
 				if startedAt == nil {
