@@ -332,3 +332,12 @@ func TestUsageLogFromService_PreservesHistoricalMissingImageSize(t *testing.T) {
 func f64Ptr(value float64) *float64 {
 	return &value
 }
+
+func TestUsageLogTransportDoesNotChangeLegacyRequestType(t *testing.T) {
+	for _, transport := range []int16{0, 1, 2} {
+		log := &service.UsageLog{RequestType: service.RequestTypeWSV2, UpstreamTransport: transport}
+		dto := UsageLogFromService(log)
+		require.Equal(t, "ws_v2", dto.RequestType)
+		require.Equal(t, transport, dto.UpstreamTransport)
+	}
+}

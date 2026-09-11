@@ -3,6 +3,7 @@
  * Handles usage logs and statistics retrieval
  */
 
+import { usageTransportQuery } from '@/utils/usageRequestType'
 import { apiClient } from './client'
 import type {
   UsageLog,
@@ -140,7 +141,7 @@ export async function list(
   }
 
   const { data } = await apiClient.get<PaginatedResponse<UsageLog>>('/usage', {
-    params
+    params: usageTransportQuery(params ?? {})
   })
   return data
 }
@@ -156,7 +157,7 @@ export async function query(
 ): Promise<PaginatedResponse<UsageLog>> {
   const { data } = await apiClient.get<PaginatedResponse<UsageLog>>('/usage', {
     ...config,
-    params
+    params: usageTransportQuery(params ?? {})
   })
   return data
 }
@@ -180,7 +181,7 @@ export async function getStats(
   }
 
   const { data } = await apiClient.get<UsageStatsResponse>('/usage/stats', {
-    params
+    params: usageTransportQuery(params ?? {})
   })
   return data
 }
@@ -207,7 +208,7 @@ export async function getStatsByDateRange(
   }
 
   const { data } = await apiClient.get<UsageStatsResponse>('/usage/stats', {
-    params
+    params: usageTransportQuery(params ?? {})
   })
   return data
 }
@@ -236,7 +237,7 @@ export async function getByDateRange(
   }
 
   const { data } = await apiClient.get<PaginatedResponse<UsageLog>>('/usage', {
-    params
+    params: usageTransportQuery(params ?? {})
   })
   return data
 }
@@ -268,7 +269,7 @@ export async function getDashboardStats(): Promise<UserDashboardStats> {
  * @returns Usage trend data for current user
  */
 export async function getDashboardTrend(params?: TrendParams): Promise<TrendResponse> {
-  const { data } = await apiClient.get<TrendResponse>('/usage/dashboard/trend', { params })
+  const { data } = await apiClient.get<TrendResponse>('/usage/dashboard/trend', { params: usageTransportQuery(params ?? {}) })
   return data
 }
 
@@ -291,7 +292,7 @@ export async function getDashboardModels(params?: {
   billing_mode?: string | null
   timezone?: string
 }): Promise<ModelStatsResponse> {
-  const { data } = await apiClient.get<ModelStatsResponse>('/usage/dashboard/models', { params })
+  const { data } = await apiClient.get<ModelStatsResponse>('/usage/dashboard/models', { params: usageTransportQuery(params ?? {}) })
   return data
 }
 
@@ -317,7 +318,7 @@ export async function getDashboardSnapshotV2(
 ): Promise<UsageDashboardSnapshotV2Response> {
   const { data } = await apiClient.get<UsageDashboardSnapshotV2Response>(
     '/usage/dashboard/snapshot-v2',
-    { params }
+    { params: usageTransportQuery(params ?? {}) }
   )
   return data
 }

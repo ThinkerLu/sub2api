@@ -3897,6 +3897,7 @@ import {
   OPENAI_WS_MODE_OFF,
   OPENAI_WS_MODE_PASSTHROUGH,
   OPENAI_WS_MODE_HTTP_BRIDGE,
+  OPENAI_WS_MODE_ADAPTIVE,
   isOpenAIWSModeEnabled,
   resolveOpenAIWSModeConcurrencyHintKey,
   type OpenAIWSMode
@@ -4506,7 +4507,8 @@ const openAIWSModeOptions = computed(() => [
   { value: OPENAI_WS_MODE_OFF, label: t('admin.accounts.openai.wsModeOff') },
   { value: OPENAI_WS_MODE_CTX_POOL, label: t('admin.accounts.openai.wsModeCtxPool') },
   { value: OPENAI_WS_MODE_PASSTHROUGH, label: t('admin.accounts.openai.wsModePassthrough') },
-  { value: OPENAI_WS_MODE_HTTP_BRIDGE, label: t('admin.accounts.openai.wsModeHttpBridge') }
+  { value: OPENAI_WS_MODE_HTTP_BRIDGE, label: t('admin.accounts.openai.wsModeHttpBridge') },
+  { value: OPENAI_WS_MODE_ADAPTIVE, label: t('admin.accounts.openai.wsModeAdaptive') }
 ])
 
 const openaiResponsesWebSocketV2Mode = computed({

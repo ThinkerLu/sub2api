@@ -586,10 +586,11 @@ export default {
           'Disabled by default. Enable to allow responses_websockets_v2 capability (still gated by global and account-type switches).',
         wsMode: 'WS mode',
         wsModeDesc:
-          'Only applies to the current OpenAI account type; account WS modes, including http_bridge, take effect only when the global gateway.openai_ws.mode_router_v2_enabled=true.',
+          'Only applies to the current OpenAI account type; account WS modes, including http_bridge, take effect only when the global gateway.openai_ws.mode_router_v2_enabled=true. adaptive prefers WS, bridges oversized first requests over HTTP, and returns to WS when full context shrinks, releasing bridge history; no client message byte limit applies. ',
         wsModeOff: 'Off (off)',
         wsModeCtxPool: 'Context Pool (ctx_pool)',
         wsModePassthrough: 'Passthrough (passthrough)',
+        wsModeAdaptive: 'Adaptive WS / HTTP (adaptive)',
         wsModeHttpBridge: 'HTTP Bridge (http_bridge)',
         wsModeShared: 'Shared (shared)',
         wsModeDedicated: 'Dedicated (dedicated)',

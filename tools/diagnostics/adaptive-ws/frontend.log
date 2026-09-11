@@ -1,0 +1,51 @@
+
+ RUN  v2.1.9 /Users/thinkerlu/Documents/apiProxy/sub2api/ws-adaptive-http-bridge/frontend
+
+ ✓ src/api/__tests__/passkey.spec.ts (4 tests) 9ms
+ ✓ src/api/__tests__/auth-oauth-adoption.spec.ts (13 tests) 2677ms
+   ✓ oauth adoption auth api > posts adoption decisions when exchanging pending oauth completion 2632ms
+ ✓ src/api/__tests__/settings.authSourceDefaults.spec.ts (13 tests) 17ms
+ ✓ src/api/__tests__/admin.users.spec.ts (3 tests) 5ms
+ ✓ src/api/__tests__/tokenRefresh.spec.ts (7 tests) 3032ms
+   ✓ refreshAuthTokens > shares one refresh request between concurrent callers in the same document 2431ms
+Browserslist: browsers data (caniuse-lite) is 9 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+ ✓ src/api/__tests__/admin.groups.duplicate.spec.ts (5 tests) 13ms
+ ✓ src/api/__tests__/admin.channelMonitor.duplicate.spec.ts (5 tests) 12ms
+ ✓ src/components/admin/usage/__tests__/UsageTable.spec.ts (23 tests) 207ms
+ ✓ src/utils/__tests__/openaiWsMode.spec.ts (6 tests) 3ms
+ ✓ src/api/__tests__/client.spec.ts (20 tests) 4762ms
+   ✓ API Client > 请求拦截器 > 规范化相对 API base，避免在回调页拼出相对 v1 路径 2675ms
+   ✓ API Client > 请求拦截器 > 自动附加 Authorization 头 334ms
+   ✓ API Client > 401 Token 刷新 > 刷新期间换号时旧请求不会清除新会话 1074ms
+ ✓ src/api/__tests__/codex.spec.ts (3 tests) 7ms
+ ✓ src/api/__tests__/adminUIRequest.spec.ts (57 tests) 71ms
+ ✓ src/api/__tests__/admin.accounts.ollamaCloudUsage.spec.ts (2 tests) 5ms
+ ✓ src/api/__tests__/settings.paymentVisibleMethods.spec.ts (3 tests) 4ms
+ ✓ src/api/__tests__/admin.accounts.duplicate.spec.ts (3 tests) 11ms
+ ✓ src/utils/__tests__/adaptiveWs.spec.ts (3 tests) 5ms
+ ✓ src/api/__tests__/admin.accounts.upstreamBillingProbe.spec.ts (2 tests) 4ms
+ ✓ src/components/account/__tests__/BulkEditAccountModal.spec.ts (54 tests) 2890ms
+ ✓ src/api/__tests__/admin.system.rollback.spec.ts (3 tests) 5ms
+ ✓ src/components/account/__tests__/CreateAccountModal.spec.ts (34 tests) 4131ms
+   ✓ CreateAccountModal OpenAI long-context billing > sets month and year expiry presets without submitting the account form 387ms
+ ✓ src/api/__tests__/auth-captcha-oauth-start.spec.ts (2 tests) 3ms
+ ✓ src/api/__tests__/admin.grok.spec.ts (5 tests) 5ms
+ ✓ src/api/__tests__/admin.proxies.spec.ts (24 tests) 13ms
+ ✓ src/api/__tests__/channelMonitorV2.spec.ts (2 tests) 7ms
+ ✓ src/components/account/__tests__/EditAccountModal.spec.ts (57 tests) 4968ms
+   ✓ EditAccountModal > sets expiry presets from now instead of extending the saved expiry 354ms
+   ✓ EditAccountModal > loads and submits the per-account OpenAI long-context billing toggle 301ms
+ ✓ src/api/__tests__/payment.spec.ts (2 tests) 2ms
+ ✓ src/api/__tests__/user.spec.ts (1 test) 279ms
+ ✓ src/api/__tests__/admin.groups.usage-summary.spec.ts (1 test) 2ms
+ ✓ src/api/__tests__/settings.wechatConnect.spec.ts (2 tests) 3ms
+ ✓ src/i18n/__tests__/wsModeLocaleDesc.spec.ts (1 test) 2ms
+ ✓ src/i18n/__tests__/localeKeyCompleteness.spec.ts (3 tests) 22ms
+
+ Test Files  31 passed (31)
+      Tests  363 passed (363)
+   Start at  12:16:30
+   Duration  15.03s (transform 28.19s, setup 6.43s, collect 36.08s, tests 23.18s, environment 27.01s, prepare 4.46s)
+

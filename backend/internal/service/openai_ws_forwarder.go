@@ -243,6 +243,10 @@ func (e *OpenAIWSClientCloseError) Reason() string {
 
 // OpenAIWSIngressHooks 定义入站 WS 每个 turn 的生命周期回调。
 type OpenAIWSIngressHooks struct {
+	// initialPayloadPrepared is internal: the adaptive bridge already applied first-turn policy.
+	initialPayloadPrepared          bool
+	initialRequestedReasoningEffort *string
+	adaptiveReader                  *openAIWSAdaptiveReader
 	// ClientLifecycleContext is the request context before an ingress lease
 	// adds its independent cancellation signal. Downstream writes bind to it
 	// so shutdown and disconnect cancellation remain direct during lease loss.

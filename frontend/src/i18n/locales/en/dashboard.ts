@@ -360,6 +360,8 @@ export default {
     latencyDuration: 'Total',
     time: 'Time',
     ws: 'WS',
+    wsHttp: 'WS → HTTP',
+    wsHttpHint: 'The client uses WebSocket; sub2api sends this request upstream over HTTP.',
     stream: 'Stream',
     sync: 'Sync',
     nativeCompactionV2: 'Compaction',

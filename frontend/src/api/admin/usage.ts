@@ -3,6 +3,7 @@
  * Handles admin-level usage logs and statistics retrieval
  */
 
+import { usageTransportQuery } from '@/utils/usageRequestType'
 import { apiClient } from '../client'
 import type { AdminUsageLog, UsageQueryParams, PaginatedResponse, UsageRequestType } from '@/types'
 import type { EndpointStat } from '@/types'
@@ -105,7 +106,7 @@ export async function list(
   options?: { signal?: AbortSignal }
 ): Promise<PaginatedResponse<AdminUsageLog>> {
   const { data } = await apiClient.get<PaginatedResponse<AdminUsageLog>>('/admin/usage', {
-    params,
+    params: usageTransportQuery(params ?? {}),
     signal: options?.signal
   })
   return data
@@ -133,7 +134,7 @@ export async function getStats(params: {
   nocache?: number
 }): Promise<AdminUsageStatsResponse> {
   const { data } = await apiClient.get<AdminUsageStatsResponse>('/admin/usage/stats', {
-    params
+    params: usageTransportQuery(params ?? {})
   })
   return data
 }

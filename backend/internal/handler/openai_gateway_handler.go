@@ -2320,6 +2320,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		c.Request = c.Request.WithContext(ctx)
 	}
 
+	adaptiveRoute, routeErr := h.gatewayService.OpenAIWSAdaptiveRouteAvailable(ctx, apiKey.GroupID)
+	if routeErr != nil {
+		reqLog.Warn("openai.websocket_adaptive_route_lookup_failed", zap.Error(routeErr))
+		h.errorResponse(c, http.StatusServiceUnavailable, "service_unavailable", "Unable to resolve websocket ingress limits")
+		return
+	}
 	wsConn, err := coderws.Accept(c.Writer, c.Request, &coderws.AcceptOptions{
 		CompressionMode: coderws.CompressionContextTakeover,
 	})
@@ -2338,7 +2344,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	defer func() {
 		_ = wsConn.CloseNow()
 	}()
-	wsConn.SetReadLimit(service.ResolveOpenAIWSClientReadLimitBytes(h.cfg))
+	if adaptiveRoute {
+		wsConn.SetReadLimit(-1)
+	} else {
+		wsConn.SetReadLimit(service.ResolveOpenAIWSClientReadLimitBytes(h.cfg))
+	}
 
 	firstMessageTimeout := service.ResolveOpenAIWSClientFirstMessageTimeout(h.cfg)
 	msgType, firstMessage, err := service.ReadOpenAIWSClientMessage(
@@ -2714,8 +2724,27 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			selection.Account = latest
 			accountReleaseFunc = fastReleaseFunc
 		}
+		if h.gatewayService.IsOpenAIWSAdaptive(account) {
+			wsConn.SetReadLimit(-1)
+		} else {
+			limit := service.ResolveOpenAIWSClientReadLimitBytes(h.cfg)
+			wsConn.SetReadLimit(limit)
+			if int64(len(wsAttemptMessage.load())) > limit {
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				closeOpenAIClientWS(wsConn, coderws.StatusMessageTooBig, "websocket message exceeds selected account read limit")
+				return
+			}
+		}
 		// 准入完成：门并入连接 ctx，turn 级复核与 failover 重选共用。
 		ctx = admissionCtx
+		if h.gatewayService.IsOpenAIWSAdaptive(account) {
+			var cleanupAdaptive func()
+			ctx, cleanupAdaptive = h.gatewayService.BeginOpenAIWSAdaptiveSession(ctx, wsConn)
+			defer cleanupAdaptive()
+		}
+
 		// Account selection starts a fresh upstream attempt. Clear any model
 		// captured by the previous failover account before credential lookup.
 		setOpsSelectedAccount(c, account.ID, account.Platform)
@@ -3003,7 +3032,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// 说明该会话链不属于本次调度到的账号，原样转发会触发上游会话链鉴权失败（“鉴权失败，请检查 API Key”）。
 		// 故剥离首包里的 previous_response_id，改用首包内 input 重建上下文；带 function_call_output 的
 		// 工具续链无法重建，保持原样。仅作用于首轮首包，后续 turn 的续链由 WS 转发层既有逻辑处理。
-		if previousResponseID != "" && !scheduleDecision.StickyPreviousHit && previousResponseCanMove {
+		if previousResponseID != "" && !scheduleDecision.StickyPreviousHit && previousResponseCanMove && !h.gatewayService.IsOpenAIWSAdaptive(account) {
 			wsFirstMessage = service.RemovePreviousResponseIDFromBody(wsFirstMessage)
 			reqLog.Debug("openai.websocket_previous_response_id_stripped_cross_group",
 				zap.Int64("account_id", account.ID),

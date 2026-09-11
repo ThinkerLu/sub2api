@@ -268,6 +268,7 @@ type OpenAIForwardResult struct {
 	RequestedReasoningEffort *string
 	Stream                   bool
 	OpenAIWSMode             bool
+	OpenAIWSHTTPBridge       bool
 	// UpstreamTerminalEvent is the normalized terminal event observed on an
 	// upstream Responses WebSocket turn. Empty preserves legacy/non-WS success.
 	UpstreamTerminalEvent string

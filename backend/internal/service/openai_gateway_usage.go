@@ -424,6 +424,10 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	usageLog.AccountRateMultiplier = &accountRateMultiplier
 	usageLog.BillingType = billingType
 	usageLog.Stream = result.Stream
+	usageLog.UpstreamTransport = UsageUpstreamTransportHTTP
+	if result.OpenAIWSMode && !result.OpenAIWSHTTPBridge {
+		usageLog.UpstreamTransport = UsageUpstreamTransportWebSocket
+	}
 	if input.CyberBlocked {
 		usageLog.RequestType = RequestTypeCyberBlocked
 	}

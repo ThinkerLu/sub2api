@@ -3,6 +3,7 @@
  * Provides system-wide statistics and metrics
  */
 
+import { usageTransportQuery } from '@/utils/usageRequestType'
 import { apiClient } from '../client'
 import type {
   DashboardStats,
@@ -73,7 +74,7 @@ export interface TrendResponse {
  * @returns Usage trend data
  */
 export async function getUsageTrend(params?: TrendParams): Promise<TrendResponse> {
-  const { data } = await apiClient.get<TrendResponse>('/admin/dashboard/trend', { params })
+  const { data } = await apiClient.get<TrendResponse>('/admin/dashboard/trend', { params: usageTransportQuery(params ?? {}) })
   return data
 }
 
@@ -105,7 +106,7 @@ export interface ModelStatsResponse {
  * @returns Model usage statistics
  */
 export async function getModelStats(params?: ModelStatsParams): Promise<ModelStatsResponse> {
-  const { data } = await apiClient.get<ModelStatsResponse>('/admin/dashboard/models', { params })
+  const { data } = await apiClient.get<ModelStatsResponse>('/admin/dashboard/models', { params: usageTransportQuery(params ?? {}) })
   return data
 }
 
@@ -160,7 +161,7 @@ export interface DashboardSnapshotV2Response {
  * @returns Group usage statistics
  */
 export async function getGroupStats(params?: GroupStatsParams): Promise<GroupStatsResponse> {
-  const { data } = await apiClient.get<GroupStatsResponse>('/admin/dashboard/groups', { params })
+  const { data } = await apiClient.get<GroupStatsResponse>('/admin/dashboard/groups', { params: usageTransportQuery(params ?? {}) })
   return data
 }
 
@@ -193,7 +194,7 @@ export interface UserBreakdownResponse {
 
 export async function getUserBreakdown(params: UserBreakdownParams): Promise<UserBreakdownResponse> {
   const { data } = await apiClient.get<UserBreakdownResponse>('/admin/dashboard/user-breakdown', {
-    params
+    params: usageTransportQuery(params ?? {})
   })
   return data
 }
@@ -203,7 +204,7 @@ export async function getUserBreakdown(params: UserBreakdownParams): Promise<Use
  */
 export async function getSnapshotV2(params?: DashboardSnapshotV2Params): Promise<DashboardSnapshotV2Response> {
   const { data } = await apiClient.get<DashboardSnapshotV2Response>('/admin/dashboard/snapshot-v2', {
-    params
+    params: usageTransportQuery(params ?? {})
   })
   return data
 }

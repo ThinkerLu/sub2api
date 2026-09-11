@@ -1,0 +1,101 @@
+{
+  "environment": "go1.27.0 darwin/arm64; local WS client and mock upstreams in one process",
+  "samples": [
+    {
+      "sample": "small",
+      "mode": "passthrough",
+      "input_bytes": 65536,
+      "baseline": 5687192,
+      "peak_heap_delta": 973936,
+      "bridge_heap_delta": 11520,
+      "compact_heap_delta": 909128,
+      "first_wall_ms": 2,
+      "first_ttft_ms": 0,
+      "compact_ttft_ms": 0
+    },
+    {
+      "sample": "small",
+      "mode": "adaptive",
+      "input_bytes": 65536,
+      "baseline": 5809536,
+      "peak_heap_delta": 1225104,
+      "bridge_heap_delta": 171344,
+      "compact_heap_delta": 1063544,
+      "first_wall_ms": 2,
+      "first_ttft_ms": 0,
+      "compact_ttft_ms": 0
+    },
+    {
+      "sample": "history",
+      "mode": "passthrough",
+      "input_bytes": 20971520,
+      "baseline": 5814488,
+      "peak_heap_delta": 193171448,
+      "bridge_heap_delta": 64061768,
+      "compact_heap_delta": 22929576,
+      "first_wall_ms": 707,
+      "first_ttft_ms": 46,
+      "compact_ttft_ms": 0
+    },
+    {
+      "sample": "history",
+      "mode": "adaptive",
+      "input_bytes": 20971520,
+      "baseline": 5818000,
+      "peak_heap_delta": 147021272,
+      "bridge_heap_delta": 42971976,
+      "compact_heap_delta": 1801968,
+      "first_wall_ms": 684,
+      "first_ttft_ms": 47,
+      "compact_ttft_ms": 0
+    },
+    {
+      "sample": "images",
+      "mode": "passthrough",
+      "input_bytes": 20971520,
+      "baseline": 5709976,
+      "peak_heap_delta": 231854088,
+      "bridge_heap_delta": 64951040,
+      "compact_heap_delta": 22927368,
+      "first_wall_ms": 607,
+      "first_ttft_ms": 47,
+      "compact_ttft_ms": 0
+    },
+    {
+      "sample": "images",
+      "mode": "adaptive",
+      "input_bytes": 20971520,
+      "baseline": 5711440,
+      "peak_heap_delta": 189894832,
+      "bridge_heap_delta": 43973648,
+      "compact_heap_delta": 1911648,
+      "first_wall_ms": 580,
+      "first_ttft_ms": 46,
+      "compact_ttft_ms": 0
+    },
+    {
+      "sample": "large65",
+      "mode": "passthrough",
+      "input_bytes": 68157440,
+      "baseline": 5713896,
+      "peak_heap_delta": 549702408,
+      "bridge_heap_delta": 205617672,
+      "compact_heap_delta": 70112808,
+      "first_wall_ms": 2289,
+      "first_ttft_ms": 149,
+      "compact_ttft_ms": 0
+    },
+    {
+      "sample": "large65",
+      "mode": "adaptive",
+      "input_bytes": 68157440,
+      "baseline": 5714560,
+      "peak_heap_delta": 477328280,
+      "bridge_heap_delta": 137454264,
+      "compact_heap_delta": 1911760,
+      "first_wall_ms": 2218,
+      "first_ttft_ms": 154,
+      "compact_ttft_ms": 0
+    }
+  ]
+}

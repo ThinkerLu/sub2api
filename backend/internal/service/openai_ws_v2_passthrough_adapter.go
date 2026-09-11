@@ -20,6 +20,7 @@ import (
 )
 
 type openAIWSClientFrameConn struct {
+	adaptiveReader       *openAIWSAdaptiveReader
 	conn                 *coderws.Conn
 	controlCtx           context.Context
 	interTurnIdleTimeout time.Duration
@@ -600,6 +601,9 @@ func (c *openAIWSClientFrameConn) ReadFrame(ctx context.Context) (coderws.Messag
 	if c == nil || c.conn == nil {
 		return coderws.MessageText, nil, errOpenAIWSConnClosed
 	}
+	if c.adaptiveReader != nil {
+		return c.adaptiveReader.read(ctx)
+	}
 	controlCtx := ctx
 	if c.controlCtx != nil {
 		controlCtx = c.controlCtx
@@ -651,6 +655,7 @@ func (c *openAIWSClientFrameConn) WriteFrame(ctx context.Context, msgType coderw
 			payload = c.restoreToolNames(payload)
 		}
 	}
+	c.adaptiveReader.beforeWrite(payload)
 	return c.conn.Write(ctx, msgType, payload)
 }
 
@@ -675,7 +680,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 ) error {
 	// The same request context survives scheduler failover attempts. Clear any
 	// reverse mapping installed by the prior account before processing frames.
-	setCodexToolNameReverse(c, nil)
+	prepared := hooks != nil && hooks.initialPayloadPrepared
+	if !prepared {
+		setCodexToolNameReverse(c, nil)
+	}
 	if s == nil {
 		return errors.New("service is nil")
 	}
@@ -688,7 +696,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if err := validateOpenAIWSBearerToken(account, token); err != nil {
 		return err
 	}
-	if isOpenAIResponsesLiteWebSocketPayload(firstClientMessage) {
+	if !prepared && isOpenAIResponsesLiteWebSocketPayload(firstClientMessage) {
 		liteFirstMessage, _, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(firstClientMessage, account)
 		if liteErr != nil {
 			return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, liteErr.Error(), liteErr)
@@ -696,11 +704,14 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		firstClientMessage = liteFirstMessage
 	}
 	originalFirstClientMessage := firstClientMessage
-	if next, policyErr := applyOpenAIWSReasoningEffortPolicy(firstClientMessage, hooks); policyErr != nil {
-		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, policyErr.Error(), policyErr)
-	} else {
-		firstClientMessage = next
+	if !prepared {
+		if next, policyErr := applyOpenAIWSReasoningEffortPolicy(firstClientMessage, hooks); policyErr != nil {
+			return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, policyErr.Error(), policyErr)
+		} else {
+			firstClientMessage = next
+		}
 	}
+
 	requestModel := strings.TrimSpace(gjson.GetBytes(firstClientMessage, "model").String())
 	requestPreviousResponseID := strings.TrimSpace(gjson.GetBytes(firstClientMessage, "previous_response_id").String())
 	promptCacheKey := strings.TrimSpace(gjson.GetBytes(firstClientMessage, "prompt_cache_key").String())
@@ -732,7 +743,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if initialRequestModel == "" {
 		initialRequestModel = openAIWSPassthroughRequestModelForFrame(firstClientMessage)
 	}
-	if hooks != nil && hooks.MapRequestModel != nil {
+	if !prepared && hooks != nil && hooks.MapRequestModel != nil {
 		mappedModel, mapErr := hooks.MapRequestModel(1, initialRequestModel)
 		if mapErr != nil {
 			return mapErr
@@ -741,56 +752,65 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			firstClientMessage = s.ReplaceModelInBody(firstClientMessage, mappedModel)
 		}
 	}
-	capturedSessionModel := openAIWSPassthroughPolicyModelForFrame(account, firstClientMessage)
+	capturedSessionModel := strings.TrimSpace(gjson.GetBytes(firstClientMessage, "model").String())
+	if !prepared {
+		capturedSessionModel = openAIWSPassthroughPolicyModelForFrame(account, firstClientMessage)
+	}
 	if capturedSessionModel != "" && capturedSessionModel != strings.TrimSpace(gjson.GetBytes(firstClientMessage, "model").String()) {
 		firstClientMessage = s.ReplaceModelInBody(firstClientMessage, capturedSessionModel)
 	}
-	firstMessageResponsesLite := isOpenAIResponsesLiteWebSocketPayload(firstClientMessage)
-	if normalized, compatibilityChanged, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(firstClientMessage, account, firstMessageResponsesLite); normalizeErr != nil {
-		return fmt.Errorf("normalize first websocket response.create: %w", normalizeErr)
-	} else if compatibilityChanged {
-		firstClientMessage = normalized
-	}
-	if account.IsOpenAIOAuthLike() {
-		aliasedBody, reverse, aliased, aliasErr := aliasOpenAIOAuthReservedToolNamesBody(firstClientMessage)
-		if aliasErr != nil {
-			return aliasErr
+	if !prepared {
+		firstMessageResponsesLite := isOpenAIResponsesLiteWebSocketPayload(firstClientMessage)
+		if normalized, compatibilityChanged, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(firstClientMessage, account, firstMessageResponsesLite); normalizeErr != nil {
+			return fmt.Errorf("normalize first websocket response.create: %w", normalizeErr)
+		} else if compatibilityChanged {
+			firstClientMessage = normalized
 		}
-		updateCodexToolNameReverseForWSFrame(c, firstClientMessage, reverse)
-		if aliased {
-			firstClientMessage = aliasedBody
+		if account.IsOpenAIOAuthLike() {
+			aliasedBody, reverse, aliased, aliasErr := aliasOpenAIOAuthReservedToolNamesBody(firstClientMessage)
+			if aliasErr != nil {
+				return aliasErr
+			}
+			updateCodexToolNameReverseForWSFrame(c, firstClientMessage, reverse)
+			if aliased {
+				firstClientMessage = aliasedBody
+			}
+		}
+		accountScopedFirst, accountScoped, scopeErr := applyCodexAccountIdentityClientMetadataRaw(firstClientMessage, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
+		if scopeErr != nil {
+			return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket identity metadata", scopeErr)
+		}
+		if accountScoped {
+			firstClientMessage = accountScopedFirst
 		}
 	}
-	accountScopedFirst, accountScoped, scopeErr := applyCodexAccountIdentityClientMetadataRaw(firstClientMessage, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
-	if scopeErr != nil {
-		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket identity metadata", scopeErr)
-	}
-	if accountScoped {
-		firstClientMessage = accountScopedFirst
-	}
+
 	usageMeta := newOpenAIWSPassthroughUsageMeta(initialRequestModel, firstClientMessage)
-	updatedFirst, blocked, policyErr := s.applyOpenAIFastPolicyToWSResponseCreate(ctx, account, capturedSessionModel, firstClientMessage)
-	if policyErr != nil {
-		return fmt.Errorf("apply openai fast policy on first ws frame: %w", policyErr)
-	}
-	if blocked != nil {
-		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
-		// coder/websocket@v1.8.14 Conn.Write is synchronous: it acquires
-		// writeFrameMu, writes the entire frame, and Flushes the underlying
-		// bufio writer before returning (write.go:42 → write.go:307-311).
-		// The subsequent close handshake re-acquires the same writeFrameMu
-		// to send the close frame, so the error event is guaranteed to
-		// reach the kernel send buffer before any close frame is queued.
-		// No explicit flush hop is required here.
-		eventBytes := buildOpenAIFastPolicyBlockedWSEvent(blocked)
-		if eventBytes != nil {
-			writeCtx, cancelWrite := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
-			_ = clientConn.Write(writeCtx, coderws.MessageText, eventBytes)
-			cancelWrite()
+	if !prepared {
+		updatedFirst, blocked, policyErr := s.applyOpenAIFastPolicyToWSResponseCreate(ctx, account, capturedSessionModel, firstClientMessage)
+		if policyErr != nil {
+			return fmt.Errorf("apply openai fast policy on first ws frame: %w", policyErr)
 		}
-		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, blocked.Message, blocked)
+		if blocked != nil {
+			MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
+			// coder/websocket@v1.8.14 Conn.Write is synchronous: it acquires
+			// writeFrameMu, writes the entire frame, and Flushes the underlying
+			// bufio writer before returning (write.go:42 → write.go:307-311).
+			// The subsequent close handshake re-acquires the same writeFrameMu
+			// to send the close frame, so the error event is guaranteed to
+			// reach the kernel send buffer before any close frame is queued.
+			// No explicit flush hop is required here.
+			eventBytes := buildOpenAIFastPolicyBlockedWSEvent(blocked)
+			if eventBytes != nil {
+				writeCtx, cancelWrite := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
+				_ = clientConn.Write(writeCtx, coderws.MessageText, eventBytes)
+				cancelWrite()
+			}
+			return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, blocked.Message, blocked)
+		}
+		firstClientMessage = updatedFirst
+
 	}
-	firstClientMessage = updatedFirst
 
 	// 在 policy filter 之后再提取 service_tier / reasoning_effort 用于
 	// usage 上报：filter 命中时 service_tier 已经从 firstClientMessage 中删除，
@@ -807,6 +827,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	// goroutine）之间同步当前 turn 的 usage metadata。
 	usageMeta.initFromFirstFrame(firstClientMessage, capturedSessionModel)
 	usageMeta.captureRequestedReasoningEffort(originalFirstClientMessage, capturedSessionModel)
+	if prepared {
+		usageMeta.requestedReasoningEffort.Store(hooks.initialRequestedReasoningEffort)
+	}
 	_, initialUpstreamModel := usageMeta.turnModels(initialRequestModel)
 	SetOpsUpstreamModel(c, initialUpstreamModel)
 	wsURL, err := s.buildOpenAIResponsesWSURL(account)
@@ -969,6 +992,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		restoreToolNames: func(payload []byte) []byte {
 			return restoreCodexToolNamesFromContext(c, payload)
 		},
+	}
+	if hooks != nil {
+		clientFrameConn.adaptiveReader = hooks.adaptiveReader
 	}
 	policyClientConn := &openAIWSPolicyEnforcingFrameConn{
 		inner: clientFrameConn,

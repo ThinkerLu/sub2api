@@ -1,0 +1,141 @@
+2026/09/11 04:15:38 Timezone initialized: UTC (UTC offset: +00:00)
+=== RUN   TestAdaptiveMemoryProfile
+=== RUN   TestAdaptiveMemoryProfile/small/passthrough
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_start account_id=901 model=gpt-5.1 previous_response_id=- first_message_type=text first_message_bytes=65619
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_dial_start account_id=901 ws_host=api.openai.com ws_path=/v1/responses proxy_enabled=false
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_dial_ok account_id=901 status_code=101 upstream_request_id=-
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=relay_start direction=- msg_type=text bytes=65619 graceful=false wrote_downstream=false err=-
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=write_first_message_skipped direction=client_to_upstream msg_type=text bytes=65619 graceful=false wrote_downstream=false err=-
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_turn_completed account_id=901 turn=1 request_id=resp_memory_ws terminal_event=response.completed turn_requested_model=gpt-5.1 turn_upstream_model=gpt-5.1 duration_ms=0 first_token_ms=0 input_tokens=1 output_tokens=1 cache_read_tokens=0
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_turn_completed account_id=901 turn=2 request_id=resp_memory_ws terminal_event=response.completed turn_requested_model=gpt-5.1 turn_upstream_model=gpt-5.1 duration_ms=0 first_token_ms=0 input_tokens=1 output_tokens=1 cache_read_tokens=0
+    openai_ws_adaptive_memory_test.go:158: PROFILE sample=small mode=passthrough input_bytes=65536 baseline=5687192 peak_heap_delta=973936 bridge_heap_delta=11520 compact_heap_delta=909128 first_wall_ms=2 first_ttft_ms=0 compact_ttft_ms=0
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=read_client_fail direction=client_to_upstream msg_type=- bytes=0 graceful=true wrote_downstream=false err=fail to get reader: fail to read frame header: EOF
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=first_exit direction=client_to_upstream msg_type=- bytes=0 graceful=true wrote_downstream=false err=fail to get reader: fail to read frame header: EOF
+=== RUN   TestAdaptiveMemoryProfile/small/adaptive
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/09/11 04:15:38 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_start account_id=901 account_type=apikey payload_bytes=65619 threshold_bytes=15728640 has_session_hash=true store_disabled=false
+2026/09/11 04:15:38 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_adaptive_handoff account_id=901 turn=1 payload_bytes=65619 threshold_bytes=15728640
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_start account_id=901 model=gpt-5.1 previous_response_id=- first_message_type=text first_message_bytes=65619
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_dial_start account_id=901 ws_host=api.openai.com ws_path=/v1/responses proxy_enabled=false
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_dial_ok account_id=901 status_code=101 upstream_request_id=-
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=relay_start direction=- msg_type=text bytes=65619 graceful=false wrote_downstream=false err=-
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=write_first_message_skipped direction=client_to_upstream msg_type=text bytes=65619 graceful=false wrote_downstream=false err=-
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_turn_completed account_id=901 turn=1 request_id=resp_memory_ws terminal_event=response.completed turn_requested_model=gpt-5.1 turn_upstream_model=gpt-5.1 duration_ms=0 first_token_ms=0 input_tokens=1 output_tokens=1 cache_read_tokens=0
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_turn_completed account_id=901 turn=2 request_id=resp_memory_ws terminal_event=response.completed turn_requested_model=gpt-5.1 turn_upstream_model=gpt-5.1 duration_ms=0 first_token_ms=0 input_tokens=1 output_tokens=1 cache_read_tokens=0
+    openai_ws_adaptive_memory_test.go:158: PROFILE sample=small mode=adaptive input_bytes=65536 baseline=5809536 peak_heap_delta=1225104 bridge_heap_delta=171344 compact_heap_delta=1063544 first_wall_ms=2 first_ttft_ms=0 compact_ttft_ms=0
+=== RUN   TestAdaptiveMemoryProfile/history/passthrough
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=read_client_fail direction=client_to_upstream msg_type=- bytes=0 graceful=true wrote_downstream=false err=fail to get reader: fail to read frame header: EOF
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=first_exit direction=client_to_upstream msg_type=- bytes=0 graceful=false wrote_downstream=false err=fail to get reader: fail to read frame header: EOF
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=read_upstream_fail direction=upstream_to_client msg_type=- bytes=0 graceful=true wrote_downstream=true err=context canceled
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=second_exit direction=upstream_to_client msg_type=- bytes=0 graceful=true wrote_downstream=true err=context canceled
+2026/09/11 04:15:38 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=relay_exit direction=client_to_upstream msg_type=- bytes=0 graceful=false wrote_downstream=true err=fail to get reader: fail to read frame header: EOF
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/09/11 04:15:38 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_start account_id=901 account_type=apikey payload_bytes=20971603 threshold_bytes=15728640 has_session_hash=true store_disabled=false
+2026/09/11 04:15:38 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_turn_completed account_id=901 turn=1 response_id=resp_memory payload_bytes=20971603 duration_ms=46 events=2 token_events=1 terminal_events=1 first_event=response.output_text.delta last_event=response.completed first_token_ms=46 client_disconnected=false
+2026/09/11 04:15:39 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_turn_completed account_id=901 turn=2 response_id=resp_memory payload_bytes=143 duration_ms=0 events=2 token_events=1 terminal_events=1 first_event=response.output_text.delta last_event=response.completed first_token_ms=0 client_disconnected=false
+    openai_ws_adaptive_memory_test.go:158: PROFILE sample=history mode=passthrough input_bytes=20971520 baseline=5814488 peak_heap_delta=193171448 bridge_heap_delta=64061768 compact_heap_delta=22929576 first_wall_ms=707 first_ttft_ms=46 compact_ttft_ms=0
+=== RUN   TestAdaptiveMemoryProfile/history/adaptive
+2026/09/11 04:15:39 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_client_closed account_id=901 close_status=- close_reason=-
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/09/11 04:15:39 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=read_upstream_fail direction=upstream_to_client msg_type=- bytes=0 graceful=true wrote_downstream=true err=context canceled
+2026/09/11 04:15:39 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=relay_client_closed direction=- msg_type=- bytes=0 graceful=true wrote_downstream=false err=-
+2026/09/11 04:15:39 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_completed account_id=901 request_id=resp_memory_ws terminal_event=response.completed duration_ms=1206 c2u_frames=2 u2c_frames=6 dropped_frames=0 turns=2
+2026/09/11 04:15:39 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_start account_id=901 account_type=apikey payload_bytes=20971603 threshold_bytes=15728640 has_session_hash=true store_disabled=false
+2026/09/11 04:15:39 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_turn_completed account_id=901 turn=1 response_id=resp_memory payload_bytes=20971603 duration_ms=47 events=2 token_events=1 terminal_events=1 first_event=response.output_text.delta last_event=response.completed first_token_ms=47 client_disconnected=false
+2026/09/11 04:15:39 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_adaptive_handoff account_id=901 turn=2 payload_bytes=143 threshold_bytes=15728640
+2026/09/11 04:15:39 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_start account_id=901 model=gpt-5.1 previous_response_id=- first_message_type=text first_message_bytes=143
+2026/09/11 04:15:39 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_dial_start account_id=901 ws_host=api.openai.com ws_path=/v1/responses proxy_enabled=false
+2026/09/11 04:15:39 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_dial_ok account_id=901 status_code=101 upstream_request_id=-
+2026/09/11 04:15:39 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=relay_start direction=- msg_type=text bytes=143 graceful=false wrote_downstream=false err=-
+2026/09/11 04:15:39 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=write_first_message_skipped direction=client_to_upstream msg_type=text bytes=143 graceful=false wrote_downstream=false err=-
+2026/09/11 04:15:39 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_turn_completed account_id=901 turn=1 request_id=resp_memory_ws terminal_event=response.completed turn_requested_model=gpt-5.1 turn_upstream_model=gpt-5.1 duration_ms=0 first_token_ms=0 input_tokens=1 output_tokens=1 cache_read_tokens=0
+    openai_ws_adaptive_memory_test.go:158: PROFILE sample=history mode=adaptive input_bytes=20971520 baseline=5818000 peak_heap_delta=147021272 bridge_heap_delta=42971976 compact_heap_delta=1801968 first_wall_ms=684 first_ttft_ms=47 compact_ttft_ms=0
+=== RUN   TestAdaptiveMemoryProfile/images/passthrough
+2026/09/11 04:15:39 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=read_client_fail direction=client_to_upstream msg_type=- bytes=0 graceful=true wrote_downstream=false err=fail to get reader: fail to read frame header: EOF
+2026/09/11 04:15:39 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=first_exit direction=client_to_upstream msg_type=- bytes=0 graceful=false wrote_downstream=false err=fail to get reader: fail to read frame header: EOF
+2026/09/11 04:15:39 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=read_upstream_fail direction=upstream_to_client msg_type=- bytes=0 graceful=true wrote_downstream=true err=context canceled
+2026/09/11 04:15:39 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=second_exit direction=upstream_to_client msg_type=- bytes=0 graceful=true wrote_downstream=true err=context canceled
+2026/09/11 04:15:39 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=relay_exit direction=client_to_upstream msg_type=- bytes=0 graceful=false wrote_downstream=true err=fail to get reader: fail to read frame header: EOF
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/09/11 04:15:40 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_start account_id=901 account_type=apikey payload_bytes=20971662 threshold_bytes=15728640 has_session_hash=true store_disabled=false
+2026/09/11 04:15:40 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_turn_completed account_id=901 turn=1 response_id=resp_memory payload_bytes=20971662 duration_ms=48 events=2 token_events=1 terminal_events=1 first_event=response.output_text.delta last_event=response.completed first_token_ms=47 client_disconnected=false
+2026/09/11 04:15:40 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_turn_completed account_id=901 turn=2 response_id=resp_memory payload_bytes=143 duration_ms=0 events=2 token_events=1 terminal_events=1 first_event=response.output_text.delta last_event=response.completed first_token_ms=0 client_disconnected=false
+    openai_ws_adaptive_memory_test.go:158: PROFILE sample=images mode=passthrough input_bytes=20971520 baseline=5709976 peak_heap_delta=231854088 bridge_heap_delta=64951040 compact_heap_delta=22927368 first_wall_ms=607 first_ttft_ms=47 compact_ttft_ms=0
+=== RUN   TestAdaptiveMemoryProfile/images/adaptive
+2026/09/11 04:15:40 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_client_closed account_id=901 close_status=- close_reason=-
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/09/11 04:15:40 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_start account_id=901 account_type=apikey payload_bytes=20971662 threshold_bytes=15728640 has_session_hash=true store_disabled=false
+2026/09/11 04:15:40 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_turn_completed account_id=901 turn=1 response_id=resp_memory payload_bytes=20971662 duration_ms=46 events=2 token_events=1 terminal_events=1 first_event=response.output_text.delta last_event=response.completed first_token_ms=46 client_disconnected=false
+2026/09/11 04:15:41 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_adaptive_handoff account_id=901 turn=2 payload_bytes=143 threshold_bytes=15728640
+2026/09/11 04:15:41 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_start account_id=901 model=gpt-5.1 previous_response_id=- first_message_type=text first_message_bytes=143
+2026/09/11 04:15:41 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_dial_start account_id=901 ws_host=api.openai.com ws_path=/v1/responses proxy_enabled=false
+2026/09/11 04:15:41 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_dial_ok account_id=901 status_code=101 upstream_request_id=-
+2026/09/11 04:15:41 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=relay_start direction=- msg_type=text bytes=143 graceful=false wrote_downstream=false err=-
+2026/09/11 04:15:41 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=write_first_message_skipped direction=client_to_upstream msg_type=text bytes=143 graceful=false wrote_downstream=false err=-
+2026/09/11 04:15:41 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_turn_completed account_id=901 turn=1 request_id=resp_memory_ws terminal_event=response.completed turn_requested_model=gpt-5.1 turn_upstream_model=gpt-5.1 duration_ms=0 first_token_ms=0 input_tokens=1 output_tokens=1 cache_read_tokens=0
+    openai_ws_adaptive_memory_test.go:158: PROFILE sample=images mode=adaptive input_bytes=20971520 baseline=5711440 peak_heap_delta=189894832 bridge_heap_delta=43973648 compact_heap_delta=1911648 first_wall_ms=580 first_ttft_ms=46 compact_ttft_ms=0
+=== RUN   TestAdaptiveMemoryProfile/large65/passthrough
+2026/09/11 04:15:41 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=read_upstream_fail direction=upstream_to_client msg_type=- bytes=0 graceful=true wrote_downstream=true err=context canceled
+2026/09/11 04:15:41 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=first_exit direction=upstream_to_client msg_type=- bytes=0 graceful=false wrote_downstream=true err=context canceled
+2026/09/11 04:15:41 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=read_client_fail direction=client_to_upstream msg_type=- bytes=0 graceful=true wrote_downstream=false err=fail to get reader: fail to read frame header: EOF
+2026/09/11 04:15:41 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=second_exit direction=client_to_upstream msg_type=- bytes=0 graceful=true wrote_downstream=false err=fail to get reader: fail to read frame header: EOF
+2026/09/11 04:15:41 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=relay_exit direction=upstream_to_client msg_type=- bytes=0 graceful=false wrote_downstream=true err=context canceled
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/09/11 04:15:42 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_start account_id=901 account_type=apikey payload_bytes=68157523 threshold_bytes=15728640 has_session_hash=true store_disabled=false
+2026/09/11 04:15:43 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_turn_completed account_id=901 turn=1 response_id=resp_memory payload_bytes=68157523 duration_ms=150 events=2 token_events=1 terminal_events=1 first_event=response.output_text.delta last_event=response.completed first_token_ms=149 client_disconnected=false
+2026/09/11 04:15:43 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_turn_completed account_id=901 turn=2 response_id=resp_memory payload_bytes=143 duration_ms=0 events=2 token_events=1 terminal_events=1 first_event=response.output_text.delta last_event=response.completed first_token_ms=0 client_disconnected=false
+    openai_ws_adaptive_memory_test.go:158: PROFILE sample=large65 mode=passthrough input_bytes=68157440 baseline=5713896 peak_heap_delta=549702408 bridge_heap_delta=205617672 compact_heap_delta=70112808 first_wall_ms=2289 first_ttft_ms=149 compact_ttft_ms=0
+=== RUN   TestAdaptiveMemoryProfile/large65/adaptive
+2026/09/11 04:15:43 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_client_closed account_id=901 close_status=- close_reason=-
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/09/11 04:15:44 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_start account_id=901 account_type=apikey payload_bytes=68157523 threshold_bytes=15728640 has_session_hash=true store_disabled=false
+2026/09/11 04:15:45 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_http_bridge_turn_completed account_id=901 turn=1 response_id=resp_memory payload_bytes=68157523 duration_ms=155 events=2 token_events=1 terminal_events=1 first_event=response.output_text.delta last_event=response.completed first_token_ms=154 client_disconnected=false
+2026/09/11 04:15:45 [OpenAI WS Mode][openai_ws_mode=true] ingress_ws_adaptive_handoff account_id=901 turn=2 payload_bytes=143 threshold_bytes=15728640
+2026/09/11 04:15:45 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_start account_id=901 model=gpt-5.1 previous_response_id=- first_message_type=text first_message_bytes=143
+2026/09/11 04:15:45 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_dial_start account_id=901 ws_host=api.openai.com ws_path=/v1/responses proxy_enabled=false
+2026/09/11 04:15:45 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_dial_ok account_id=901 status_code=101 upstream_request_id=-
+2026/09/11 04:15:45 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=relay_start direction=- msg_type=text bytes=143 graceful=false wrote_downstream=false err=-
+2026/09/11 04:15:45 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=write_first_message_skipped direction=client_to_upstream msg_type=text bytes=143 graceful=false wrote_downstream=false err=-
+2026/09/11 04:15:45 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_turn_completed account_id=901 turn=1 request_id=resp_memory_ws terminal_event=response.completed turn_requested_model=gpt-5.1 turn_upstream_model=gpt-5.1 duration_ms=0 first_token_ms=0 input_tokens=1 output_tokens=1 cache_read_tokens=0
+    openai_ws_adaptive_memory_test.go:158: PROFILE sample=large65 mode=adaptive input_bytes=68157440 baseline=5714560 peak_heap_delta=477328280 bridge_heap_delta=137454264 compact_heap_delta=1911760 first_wall_ms=2218 first_ttft_ms=154 compact_ttft_ms=0
+--- PASS: TestAdaptiveMemoryProfile (7.49s)
+    --- PASS: TestAdaptiveMemoryProfile/small/passthrough (0.01s)
+    --- PASS: TestAdaptiveMemoryProfile/small/adaptive (0.01s)
+    --- PASS: TestAdaptiveMemoryProfile/history/passthrough (0.75s)
+    --- PASS: TestAdaptiveMemoryProfile/history/adaptive (0.72s)
+    --- PASS: TestAdaptiveMemoryProfile/images/passthrough (0.65s)
+    --- PASS: TestAdaptiveMemoryProfile/images/adaptive (0.62s)
+    --- PASS: TestAdaptiveMemoryProfile/large65/passthrough (2.40s)
+    --- PASS: TestAdaptiveMemoryProfile/large65/adaptive (2.33s)
+2026/09/11 04:15:45 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=read_client_fail direction=client_to_upstream msg_type=- bytes=0 graceful=true wrote_downstream=false err=fail to get reader: fail to read frame header: EOF
+2026/09/11 04:15:45 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=first_exit direction=client_to_upstream msg_type=- bytes=0 graceful=false wrote_downstream=false err=fail to get reader: fail to read frame header: EOF
+2026/09/11 04:15:45 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=read_upstream_fail direction=upstream_to_client msg_type=- bytes=0 graceful=true wrote_downstream=true err=context canceled
+2026/09/11 04:15:45 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=second_exit direction=upstream_to_client msg_type=- bytes=0 graceful=true wrote_downstream=true err=context canceled
+2026/09/11 04:15:45 [OpenAI WS v2 passthrough] ws_mode=passthrough ws_router=v2 relay_trace account_id=901 stage=relay_exit direction=client_to_upstream msg_type=- bytes=0 graceful=false wrote_downstream=true err=fail to get reader: fail to read frame header: EOF
+PASS
+ok  	github.com/Wei-Shaw/sub2api/internal/service	7.551s

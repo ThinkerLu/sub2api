@@ -217,3 +217,23 @@ func TestAdminUsageStatsInvalidStream(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestAdminUsageUpstreamTransportFilter(t *testing.T) {
+	repo := &adminUsageRepoCapture{}
+	router := newAdminUsageRequestTypeTestRouter(repo)
+	for _, endpoint := range []string{"/admin/usage", "/admin/usage/stats"} {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, endpoint+"?request_type=ws_v2&upstream_transport=1&nocache=1", nil))
+		require.Equal(t, http.StatusOK, rec.Code)
+		filters := repo.listFilters
+		if endpoint == "/admin/usage/stats" {
+			filters = repo.statsFilters
+		}
+		require.NotNil(t, filters.UpstreamTransport)
+		require.Equal(t, int16(1), *filters.UpstreamTransport)
+		require.Equal(t, int16(service.RequestTypeWSV2), *filters.RequestType)
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/usage?upstream_transport=6", nil))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}

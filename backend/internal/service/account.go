@@ -2108,6 +2108,7 @@ const (
 	OpenAIWSIngressModeCtxPool     = "ctx_pool"
 	OpenAIWSIngressModePassthrough = "passthrough"
 	OpenAIWSIngressModeHTTPBridge  = "http_bridge"
+	OpenAIWSIngressModeAdaptive    = "adaptive"
 )
 
 func normalizeOpenAIWSIngressMode(mode string) string {
@@ -2118,6 +2119,8 @@ func normalizeOpenAIWSIngressMode(mode string) string {
 		return OpenAIWSIngressModeCtxPool
 	case OpenAIWSIngressModePassthrough:
 		return OpenAIWSIngressModePassthrough
+	case OpenAIWSIngressModeAdaptive:
+		return OpenAIWSIngressModeAdaptive
 	case OpenAIWSIngressModeHTTPBridge:
 		return OpenAIWSIngressModeHTTPBridge
 	case OpenAIWSIngressModeShared:

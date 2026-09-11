@@ -199,6 +199,19 @@ func appendRequestTypeOrStreamQueryFilter(query string, args []any, requestType 
 	return query, args
 }
 
+func appendUpstreamTransportWhereCondition(conditions []string, args []any, upstreamTransport *int16, alias string) ([]string, []any) {
+	if upstreamTransport == nil {
+		return conditions, args
+	}
+	column := "upstream_transport"
+	if alias != "" {
+		column = alias + "." + column
+	}
+	conditions = append(conditions, fmt.Sprintf("%s = $%d", column, len(args)+1))
+	args = append(args, *upstreamTransport)
+	return conditions, args
+}
+
 func appendNativeCompactionV2WhereCondition(conditions []string, args []any, nativeCompactionV2 *bool, alias string) ([]string, []any) {
 	if nativeCompactionV2 == nil {
 		return conditions, args
@@ -242,4 +255,18 @@ func buildRequestTypeFilterConditionWithAlias(startArgIndex int, requestType int
 	default:
 		return fmt.Sprintf("%srequest_type = $%d", prefix, startArgIndex), []any{requestTypeArg}
 	}
+}
+
+func firstUsageUpstreamTransport(values []*int16) *int16 {
+	if len(values) > 0 {
+		return values[0]
+	}
+	return nil
+}
+func appendUpstreamTransportQueryFilter(query string, args []any, value *int16, alias string) (string, []any) {
+	conditions, args := appendUpstreamTransportWhereCondition(nil, args, value, alias)
+	if len(conditions) == 0 {
+		return query, args
+	}
+	return query + " AND " + conditions[0], args
 }

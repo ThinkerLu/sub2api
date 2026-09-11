@@ -62,7 +62,7 @@ func newOpenAIWSDownstreamWriteContext(controlCtx context.Context, hooks *OpenAI
 	return context.WithTimeout(writeParent, timeout)
 }
 
-func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
+func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 	ctx context.Context,
 	c *gin.Context,
 	clientConn *coderws.Conn,
@@ -150,6 +150,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				hooks,
 				wsDecision,
 			)
+		case OpenAIWSIngressModeAdaptive:
+			if wsDecision.Transport != OpenAIUpstreamTransportResponsesWebsocketV2 {
+				return fmt.Errorf("adaptive ingress requires ws_v2 transport")
+			}
+			forceHTTPBridge = true
 		case OpenAIWSIngressModeHTTPBridge:
 			forceHTTPBridge = true
 		case OpenAIWSIngressModeCtxPool, OpenAIWSIngressModeShared, OpenAIWSIngressModeDedicated:
@@ -157,7 +162,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		default:
 			return NewOpenAIWSClientCloseError(
 				coderws.StatusPolicyViolation,
-				"websocket mode only supports ctx_pool/passthrough/http_bridge",
+				"websocket mode only supports ctx_pool/passthrough/http_bridge/adaptive",
 				nil,
 			)
 		}
@@ -319,7 +324,10 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			normalized = next
 		}
-		accountIdentitySourceRaw := append([]byte(nil), normalized...)
+		accountIdentitySourceRaw := normalized
+		if ingressMode != OpenAIWSIngressModeAdaptive {
+			accountIdentitySourceRaw = append([]byte(nil), normalized...)
+		}
 		accountScopedPayload, accountScoped, scopeErr := applyCodexAccountIdentityClientMetadataRaw(normalized, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
 		if scopeErr != nil {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket identity metadata", scopeErr)
@@ -487,18 +495,28 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		writeCtx, cancel := newOpenAIWSDownstreamWriteContext(ctx, hooks, s.openAIWSWriteTimeout())
 		defer cancel()
 		message = restoreCodexToolNamesFromContext(c, message)
+		if hooks != nil {
+			hooks.adaptiveReader.beforeWrite(message)
+		}
 		return clientConn.Write(writeCtx, coderws.MessageText, message)
 	}
 
 	readClientMessage := func() ([]byte, error) {
 		idleTimeout := s.openAIWSIngressInterTurnIdleTimeout()
-		msgType, payload, readErr := ReadOpenAIWSClientMessage(
-			ctx,
-			clientConn,
-			idleTimeout,
-			coderws.StatusNormalClosure,
-			"websocket idle timeout",
-		)
+		var msgType coderws.MessageType
+		var payload []byte
+		var readErr error
+		if hooks != nil && hooks.adaptiveReader != nil {
+			msgType, payload, readErr = hooks.adaptiveReader.read(ctx)
+		} else {
+			msgType, payload, readErr = ReadOpenAIWSClientMessage(
+				ctx,
+				clientConn,
+				idleTimeout,
+				coderws.StatusNormalClosure,
+				"websocket idle timeout",
+			)
+		}
 		if readErr != nil {
 			var closeErr *OpenAIWSClientCloseError
 			if errors.As(readErr, &closeErr) && closeErr.StatusCode() == coderws.StatusNormalClosure {
@@ -569,6 +587,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			storeDisabled,
 		)
 		currentBridgePayload := firstPayload
+		adaptive := ingressMode == OpenAIWSIngressModeAdaptive
+		lastBridgeResponseID := ""
 		// Keep the first turn as the stable conversation seed. The mapped model
 		// is resolved again for each turn below so an in-connection model switch
 		// cannot reuse another model's upstream cache identity.
@@ -578,6 +598,10 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		var bridgeAccountFailoverInput []json.RawMessage
 		bridgeAccountFailoverInputExists := false
 		for turn := 1; ; turn++ {
+			turnStartedAt := time.Now()
+			if turn == 1 && hooks != nil && !hooks.InitialTurnStartedAt.IsZero() {
+				turnStartedAt = hooks.InitialTurnStartedAt
+			}
 			if turn > 1 && hooks != nil && hooks.BeforeRequest != nil {
 				if err := hooks.BeforeRequest(turn, currentBridgePayload.payloadRaw, currentBridgePayload.originalModel); err != nil {
 					return err
@@ -616,6 +640,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			toolOutputCoverage := AnalyzeToolCallOutputContextCoverageBytes(currentBridgePayload.payloadRaw)
 			needsBridgeReplay := currentBridgePayload.previousResponseID != "" ||
 				(toolOutputCoverage.HasFunctionCallOutput && !toolOutputCoverage.ContextCoversAllCallIDs)
+			if adaptive && currentBridgePayload.previousResponseID != "" && (lastBridgeResponseID == "" || currentBridgePayload.previousResponseID != lastBridgeResponseID || !bridgeReplayInputExists) {
+				return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "adaptive bridge cannot restore unknown previous_response_id", nil)
+			}
+			if adaptive && needsBridgeReplay && !bridgeReplayInputExists {
+				return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "adaptive bridge requires complete tool context", nil)
+			}
 			// 一次解析当前 input，正常 replay 与 account-failover 两份序列共享同一批正文。
 			bridgeCurrentItems, bridgeCurrentItemsExist, extractErr := openAIWSExtractNormalizedInputSequence(
 				currentBridgePayload.payloadRaw,
@@ -656,6 +686,20 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					currentBridgePayload.previousResponseID != "",
 					openAIWSRawPayloadHasToolCallOutput(currentBridgePayload.payloadRaw),
 				)
+			}
+			if adaptive {
+				candidate, _, candidateErr := dropPreviousResponseIDFromRawPayload(bridgePayloadRaw)
+				if candidateErr != nil {
+					return candidateErr
+				}
+				if int64(len(candidate)) < s.openAIWSHTTPBridgeThresholdBytes() {
+					coverage := AnalyzeToolCallOutputContextCoverageBytes(candidate)
+					if coverage.HasFunctionCallOutput && !coverage.ContextCoversAllCallIDs {
+						return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "adaptive bridge requires complete tool context", nil)
+					}
+					logOpenAIWSModeInfo("ingress_ws_adaptive_handoff account_id=%d turn=%d payload_bytes=%d threshold_bytes=%d", account.ID, turn, len(candidate), s.openAIWSHTTPBridgeThresholdBytes())
+					return &openAIWSAdaptiveHandoff{payload: candidate, originalModel: currentBridgePayload.originalModel, requestedReasoningEffort: currentBridgePayload.requestedReasoningEffort, turn: turn, startedAt: turnStartedAt, history: turnReplayInput}
+				}
 			}
 			grokCacheIdentity := ""
 			if account.Platform == PlatformGrok {
@@ -730,12 +774,17 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				)
 				bridgeAccountFailoverInputExists = true
 			}
+			if adaptive {
+				bridgeReplayInput = bridgeAccountFailoverInput
+				bridgeReplayInputExists = bridgeAccountFailoverInputExists
+			}
 			if bridgeTurnState := strings.TrimSpace(result.ResponseHeaders.Get(openAIWSTurnStateHeader)); bridgeTurnState != "" {
 				// Follow-up turns on this bridge retain their own upstream state;
 				// publishing it by session hash would leak it to independent bridges.
 				turnState = bridgeTurnState
 			}
 			responseID := strings.TrimSpace(result.RequestID)
+			lastBridgeResponseID = responseID
 			if responseID != "" && stateStore != nil {
 				ttl := s.openAIWSResponseStickyTTL()
 				logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, stateStore.BindResponseAccount(ctx, groupID, responseID, account.ID, ttl))

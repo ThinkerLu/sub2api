@@ -531,6 +531,11 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	buildUpstreamRequest := func(requestBody []byte) (*http.Request, error) {
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 		defer releaseUpstreamCtx()
+		// Adaptive owns a downstream reader for the whole session. Keep its
+		// cancellation on HTTP requests so disconnect/overlap releases large bodies.
+		if s.IsOpenAIWSAdaptive(account) {
+			upstreamCtx = ctx
+		}
 		var upstreamReq *http.Request
 		var buildErr error
 		if account.Platform == PlatformGrok {
@@ -704,6 +709,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			RequestedReasoningEffort:      CanonicalRequestedReasoningEffort(body, originalModel, mappedModel),
 			Stream:                        reqStream,
 			OpenAIWSMode:                  true,
+			OpenAIWSHTTPBridge:            true,
 			UpstreamTerminalEvent:         upstreamTerminalEvent,
 			ResponseHeaders:               cloneHeader(resp.Header),
 			Duration:                      time.Since(turnStart),

@@ -26,7 +26,7 @@ type openAIWSPassthroughHandlerHarness struct {
 	apiKey         *service.APIKey
 }
 
-func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string) *openAIWSPassthroughHandlerHarness {
+func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, configure ...func(*config.Config, *service.Account)) *openAIWSPassthroughHandlerHarness {
 	t.Helper()
 	gatewayCache := testutil.NewRedisGatewayCache(t)
 
@@ -68,12 +68,15 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string) *ope
 	cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
 	cfg.Gateway.OpenAIWS.IngressInterTurnIdleTimeoutSeconds = 3
 
+	for _, apply := range configure {
+		apply(cfg, &account)
+	}
 	accountRepo := &openAIWSUsageHandlerAccountRepoStub{account: account}
 	usageRepo := &openAIWSUsageHandlerUsageLogRepoStub{created: make(chan *service.UsageLog, 2)}
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	gatewaySvc := service.NewOpenAIGatewayService(
 		accountRepo, usageRepo, nil, nil, nil, nil, gatewayCache, cfg, nil, nil,
-		service.NewBillingService(cfg, nil), nil, billingCacheSvc, nil, &service.DeferredService{},
+		service.NewBillingService(cfg, nil), nil, billingCacheSvc, &adaptiveHarnessHTTPUpstream{}, &service.DeferredService{},
 		nil, nil, nil, nil, nil, settingSvc, nil,
 	)
 	concurrencyCache := &concurrencyCacheMock{
@@ -81,6 +84,7 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string) *ope
 		acquireAccountSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil },
 	}
 	h := &OpenAIGatewayHandler{
+		cfg:                      cfg,
 		gatewayService:           gatewaySvc,
 		billingCacheService:      billingCacheSvc,
 		apiKeyService:            &service.APIKeyService{},

@@ -137,6 +137,11 @@ func (h *UsageHandler) List(c *gin.Context) {
 		response.BadRequest(c, "Invalid native_compaction_v2 value, use true or false")
 		return
 	}
+	upstreamTransport, err := parseOptionalUpstreamTransportFilter(c)
+	if err != nil {
+		response.BadRequest(c, "Invalid upstream_transport value, use 0, 1 or 2")
+		return
+	}
 
 	var billingType *int8
 	if billingTypeStr := c.Query("billing_type"); billingTypeStr != "" {
@@ -199,6 +204,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 		RequestType:           requestType,
 		Stream:                stream,
 		NativeCompactionV2:    nativeCompactionV2,
+		UpstreamTransport:     upstreamTransport,
 		BillingType:           billingType,
 		BillingMode:           billingMode,
 		UpstreamModelMismatch: upstreamModelMismatch,
@@ -288,6 +294,11 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 		response.BadRequest(c, "Invalid native_compaction_v2 value, use true or false")
 		return
 	}
+	upstreamTransport, err := parseOptionalUpstreamTransportFilter(c)
+	if err != nil {
+		response.BadRequest(c, "Invalid upstream_transport value, use 0, 1 or 2")
+		return
+	}
 
 	var billingType *int8
 	if billingTypeStr := c.Query("billing_type"); billingTypeStr != "" {
@@ -358,6 +369,7 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 		RequestType:           requestType,
 		Stream:                stream,
 		NativeCompactionV2:    nativeCompactionV2,
+		UpstreamTransport:     upstreamTransport,
 		BillingType:           billingType,
 		BillingMode:           billingMode,
 		UpstreamModelMismatch: upstreamModelMismatch,
@@ -647,4 +659,16 @@ func (h *UsageHandler) CancelCleanupTask(c *gin.Context) {
 	}
 	logger.LegacyPrintf("handler.admin.usage", "[UsageCleanup] 清理任务已取消: task=%d operator=%d", taskID, subject.UserID)
 	response.Success(c, gin.H{"id": taskID, "status": service.UsageCleanupStatusCanceled})
+}
+
+func parseOptionalUpstreamTransportFilter(c *gin.Context) (*int16, error) {
+	raw := strings.TrimSpace(c.Query("upstream_transport"))
+	if raw == "" {
+		return nil, nil
+	}
+	v, err := service.ParseUsageUpstreamTransport(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
 }

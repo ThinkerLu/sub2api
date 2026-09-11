@@ -267,13 +267,18 @@ func (h *DashboardHandler) GetUsageTrend(c *gin.Context) {
 		response.BadRequest(c, "Invalid native_compaction_v2 value, use true or false")
 		return
 	}
+	upstreamTransport, err := parseOptionalUpstreamTransportFilter(c)
+	if err != nil {
+		response.BadRequest(c, "Invalid upstream_transport value, use 0, 1 or 2")
+		return
+	}
 	upstreamModelMismatch, err = parseOptionalBoolDashboardFilter(c, "upstream_model_mismatch")
 	if err != nil {
 		response.BadRequest(c, "Invalid upstream_model_mismatch value, use true or false")
 		return
 	}
 
-	trend, hit, err := h.getUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, userID, apiKeyID, accountID, groupID, model, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch)
+	trend, hit, err := h.getUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, userID, apiKeyID, accountID, groupID, model, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch, upstreamTransport)
 	if err != nil {
 		response.Error(c, 500, "Failed to get usage trend")
 		return
@@ -359,13 +364,18 @@ func (h *DashboardHandler) GetModelStats(c *gin.Context) {
 		response.BadRequest(c, "Invalid native_compaction_v2 value, use true or false")
 		return
 	}
+	upstreamTransport, err := parseOptionalUpstreamTransportFilter(c)
+	if err != nil {
+		response.BadRequest(c, "Invalid upstream_transport value, use 0, 1 or 2")
+		return
+	}
 	upstreamModelMismatch, err = parseOptionalBoolDashboardFilter(c, "upstream_model_mismatch")
 	if err != nil {
 		response.BadRequest(c, "Invalid upstream_model_mismatch value, use true or false")
 		return
 	}
 
-	stats, hit, err := h.getModelStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, modelSource, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch)
+	stats, hit, err := h.getModelStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, modelSource, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch, upstreamTransport)
 	if err != nil {
 		response.Error(c, 500, "Failed to get model statistics")
 		return
@@ -441,13 +451,18 @@ func (h *DashboardHandler) GetGroupStats(c *gin.Context) {
 		response.BadRequest(c, "Invalid native_compaction_v2 value, use true or false")
 		return
 	}
+	upstreamTransport, err := parseOptionalUpstreamTransportFilter(c)
+	if err != nil {
+		response.BadRequest(c, "Invalid upstream_transport value, use 0, 1 or 2")
+		return
+	}
 	upstreamModelMismatch, err = parseOptionalBoolDashboardFilter(c, "upstream_model_mismatch")
 	if err != nil {
 		response.BadRequest(c, "Invalid upstream_model_mismatch value, use true or false")
 		return
 	}
 
-	stats, hit, err := h.getGroupStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch)
+	stats, hit, err := h.getGroupStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch, upstreamTransport)
 	if err != nil {
 		response.Error(c, 500, "Failed to get group statistics")
 		return
@@ -715,6 +730,14 @@ func (h *DashboardHandler) GetUserBreakdown(c *gin.Context) {
 		if s, err := strconv.ParseBool(v); err == nil {
 			dim.Stream = &s
 		}
+	}
+	if raw := strings.TrimSpace(c.Query("upstream_transport")); raw != "" {
+		value, err := service.ParseUsageUpstreamTransport(raw)
+		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+		dim.UpstreamTransport = &value
 	}
 	if v := strings.TrimSpace(c.Query("native_compaction_v2")); v != "" {
 		value, err := strconv.ParseBool(v)

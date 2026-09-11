@@ -365,6 +365,8 @@ export default {
     latencyDuration: '总耗时',
     time: '时间',
     ws: 'WS',
+    wsHttp: 'WS → HTTP',
+    wsHttpHint: '客户端通过 WebSocket 连接 sub2api，本次请求由 sub2api 通过 HTTP 发送至上游。',
     stream: '流式',
     sync: '同步',
     nativeCompactionV2: '压缩',

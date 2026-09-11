@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -177,6 +178,7 @@ type UsageLog struct {
 	RequestType        RequestType
 	Stream             bool
 	OpenAIWSMode       bool
+	UpstreamTransport  int16
 	NativeCompactionV2 bool
 	DurationMs         *int
 	FirstTokenMs       *int
@@ -238,4 +240,20 @@ func (u *UsageLog) SyncRequestTypeAndLegacyFields() {
 	requestType := u.EffectiveRequestType()
 	u.RequestType = requestType
 	u.Stream, u.OpenAIWSMode = ApplyLegacyRequestFields(requestType, u.Stream, u.OpenAIWSMode)
+}
+
+// Usage transport is independent of the legacy ingress request type. Zero is
+// deliberately unknown so migrations do not invent transport for old records.
+const (
+	UsageUpstreamTransportUnknown   int16 = 0
+	UsageUpstreamTransportHTTP      int16 = 1
+	UsageUpstreamTransportWebSocket int16 = 2
+)
+
+func ParseUsageUpstreamTransport(raw string) (int16, error) {
+	n, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 16)
+	if err != nil || n < 0 || n > 2 {
+		return 0, fmt.Errorf("invalid upstream_transport, allowed values: 0, 1, 2")
+	}
+	return int16(n), nil
 }
