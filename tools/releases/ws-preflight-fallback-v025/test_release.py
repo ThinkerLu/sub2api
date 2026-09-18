@@ -30,6 +30,8 @@ COMPOSE = '''services:
 class ReleaseHelpersTests(unittest.TestCase):
     def test_known_additive_migrations_match_runtime_checksum(self):
         migrations = release.HERE.parents[2] / 'backend' / 'migrations'
+        if not migrations.is_dir():
+            self.skipTest('source migrations are not present in the standalone release directory')
         for name, expected in release.KNOWN_ADDITIVE_MIGRATIONS.items():
             actual = hashlib.sha256((migrations / name).read_text().strip().encode()).hexdigest()
             self.assertEqual(actual, expected, name)
