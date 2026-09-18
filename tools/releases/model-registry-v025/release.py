@@ -30,6 +30,11 @@ REGISTRY_ENV = {
     'MODEL_REGISTRY_FILE': REGISTRY_CONTAINER_FILE,
     'MODEL_REGISTRY_RELOAD_INTERVAL_SECONDS': '5',
 }
+REGISTRY_COMPOSE_ENV = {
+    'MODEL_REGISTRY_ENABLED': '${MODEL_REGISTRY_ENABLED:-true}',
+    'MODEL_REGISTRY_FILE': '${MODEL_REGISTRY_FILE:-' + REGISTRY_CONTAINER_FILE + '}',
+    'MODEL_REGISTRY_RELOAD_INTERVAL_SECONDS': '${MODEL_REGISTRY_RELOAD_INTERVAL_SECONDS:-5}',
+}
 
 KNOWN_ADDITIVE_MIGRATIONS = {
     '238_opencode_go_platform.sql': '35ce9b168aef3fdf29ac1ab02041abf6ce568d41b9dc18f32924d6fde67cb093',
@@ -119,6 +124,19 @@ def edit_compose(text, image, registry=True):
             if insert_at and not block_lines[insert_at - 1].endswith('\n'):
                 block_lines[insert_at - 1] += '\n'
             block_lines[insert_at:insert_at] = ['    volumes:\n', REGISTRY_MOUNT]
+        block = ''.join(block_lines)
+    if registry:
+        block_lines = block.splitlines(keepends=True)
+        environment_header = next((i for i, line in enumerate(block_lines) if re.fullmatch(r'    environment:\s*\n?', line)), None)
+        if environment_header is None:
+            raise ValueError('sub2api 必须有 environment 字段以启用 model registry')
+        insert_at = environment_header + 1
+        for key, value in REGISTRY_COMPOSE_ENV.items():
+            pattern = re.compile(r'^      ' + re.escape(key) + r':')
+            if any(pattern.match(line) for line in block_lines):
+                continue
+            block_lines.insert(insert_at, f'      {key}: "{value}"\n')
+            insert_at += 1
         block = ''.join(block_lines)
     return ''.join(lines[:start]) + block + ''.join(lines[end:])
 

@@ -40,6 +40,8 @@ class ReleaseHelpersTests(unittest.TestCase):
         edited = release.edit_compose(COMPOSE, IMAGE)
         self.assertIn('    image: ' + IMAGE + '\n', edited)
         self.assertEqual(edited.count(release.REGISTRY_MOUNT), 1)
+        for key, value in release.REGISTRY_COMPOSE_ENV.items():
+            self.assertIn(f'      {key}: "{value}"\n', edited)
         self.assertEqual(edited.split('  postgres:')[1], COMPOSE.split('  postgres:')[1])
         self.assertEqual(release.edit_compose(edited, IMAGE), edited)
 
@@ -71,9 +73,13 @@ class FakeRelease(release.Release):
 
     def config(self):
         is_new = self.current == NEW
+        compose_text = self.compose.read_text()
+        environment = release.REGISTRY_ENV if is_new else {}
+        if '${MODEL_REGISTRY_ENABLED:-true}' in compose_text:
+            environment = {key: release.REGISTRY_COMPOSE_ENV[key].split(':-', 1)[1].rstrip('}') for key in release.REGISTRY_ENV}
         return {
             'image': IMAGE if is_new else release.OLD_IMAGE,
-            'environment': release.REGISTRY_ENV if is_new else {},
+            'environment': environment,
             'volumes': [{'target': release.REGISTRY_CONTAINER_DIR, 'read_only': True}] if is_new else [],
         }
 
