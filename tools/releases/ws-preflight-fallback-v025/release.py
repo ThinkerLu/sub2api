@@ -191,11 +191,14 @@ class Release:
     def dc(self, *args, data=None):
         return self.d('compose', '-f', str(self.compose), *args, data=data)
 
+    def dc_combined(self, *args, data=None):
+        return run_combined(self.docker + ['compose', '-f', str(self.compose), *args], data)
+
     def config(self):
         return json.loads(self.dc('config', '--format', 'json'))['services']['sub2api']
 
     def current_version(self):
-        return self.dc('exec', '-T', 'sub2api', '/app/sub2api', '--version')
+        return self.dc_combined('exec', '-T', 'sub2api', '/app/sub2api', '--version')
 
     def check_image(self, image, commit, expected_id=None):
         info = json.loads(self.d('image', 'inspect', image))[0]

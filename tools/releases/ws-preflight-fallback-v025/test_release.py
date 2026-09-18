@@ -35,6 +35,18 @@ class ReleaseHelpersTests(unittest.TestCase):
             self.assertEqual(release.run_combined(['docker', 'run']), 'Sub2API commit abc123\n')
             self.assertIs(run_mock.call_args.kwargs['stderr'], release.subprocess.STDOUT)
 
+    def test_current_version_uses_combined_container_output(self):
+        completed = SimpleNamespace(returncode=0, stdout='Sub2API commit abc123\n')
+        release_obj = object.__new__(release.Release)
+        release_obj.docker = ['docker']
+        release_obj.compose = Path('/synthetic/docker-compose.yml')
+        with patch.object(release.subprocess, 'run', return_value=completed) as run_mock:
+            self.assertEqual(release_obj.current_version(), 'Sub2API commit abc123\n')
+            args = run_mock.call_args.args[0]
+            self.assertEqual(args[:4], ['docker', 'compose', '-f', str(release_obj.compose)])
+            self.assertEqual(args[4:7], ['exec', '-T', 'sub2api'])
+            self.assertIs(run_mock.call_args.kwargs['stderr'], release.subprocess.STDOUT)
+
     def test_known_additive_migrations_match_runtime_checksum(self):
         migrations = release.HERE.parents[2] / 'backend' / 'migrations'
         if not migrations.is_dir():
