@@ -80,12 +80,15 @@ func TestIsModelSupported_OpenAIOAuthExplicitMappingUnchanged(t *testing.T) {
 	require.False(t, account.IsModelSupported("glm-4.7"))
 }
 
-func TestIsModelSupported_OpenAIOAuthPassthroughAllowsAll(t *testing.T) {
+func TestIsModelSupported_OpenAIOAuthPassthroughStillRejectsForeignModels(t *testing.T) {
 	account := newOpenAIOAuthAccountForModelTest()
 	account.Extra = map[string]any{"openai_passthrough": true}
 
-	// 透传模式仅替换认证，模型语义由上游决定，保持"允许所有"。
-	require.True(t, account.IsModelSupported("deepseek-v4"))
+	// 透传不改变 OAuth transport，Codex 上游仍不可能服务其他厂商模型。
+	require.False(t, account.IsModelSupported("deepseek-v4"))
+	require.False(t, account.IsModelSupported("glm-5.3-flash"))
+	require.True(t, account.IsModelSupported("gpt-5.6-sol"))
+	require.True(t, account.IsModelSupported("my-custom-alias"))
 }
 
 func TestIsModelSupported_OpenAIOAuthPassthroughIgnoresLeftoverMapping(t *testing.T) {
@@ -99,7 +102,18 @@ func TestIsModelSupported_OpenAIOAuthPassthroughIgnoresLeftoverMapping(t *testin
 	}
 
 	require.True(t, account.IsModelSupported("gpt-5.6-sol"), "透传应放行不在残留白名单中的新模型")
-	require.True(t, account.IsModelSupported("deepseek-v4"), "透传应放行任意模型")
+	require.False(t, account.IsModelSupported("deepseek-v4"), "残留 mapping 不得让 OAuth 账号声明其他厂商模型")
+}
+
+func TestIsModelSupported_OpenAIOAuthPassthroughExplicitForeignMapping(t *testing.T) {
+	account := newOpenAIOAuthAccountForModelTest()
+	account.Extra = map[string]any{"openai_passthrough": true}
+	account.Credentials = map[string]any{
+		"model_mapping": map[string]any{"deepseek-v4": "gpt-5.4"},
+	}
+
+	// 显式 mapping 表示将该公开模型改写为 GPT 模型，因此仍可作为账号能力声明。
+	require.True(t, account.IsModelSupported("deepseek-v4"))
 }
 
 func TestIsModelSupported_OpenAIAPIKeyEmptyMappingAllowsAll(t *testing.T) {

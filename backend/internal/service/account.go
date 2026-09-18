@@ -853,14 +853,17 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 // （isDeepseekServableModel）——未知模型名透传上游只会得到 404/400，并误触发
 // per-(账号,模型) 30 分钟冷却；带 [1m] 上下文后缀的写法先归一化再比对。
 func (a *Account) IsModelSupported(requestedModel string) bool {
-	// 透传模式仅替换认证、模型语义完全交由上游决定，因此放行所有模型。
-	// 该短路必须在 model_mapping 判定之前：账号从"白名单模式"切换到透传后，
-	// credentials 里常残留旧的非空 model_mapping，若不在此放行，透传账号会被
-	// model_mapping 白名单错误排除出候选集，导致 no available accounts / 404（issue #4936）。
+	mapping := a.GetModelMapping()
+	// 透传模式仅替换认证、模型语义交由上游决定。对第三方 OpenAI 兼容 API Key
+	// 账号仍放行所有模型；但 OpenAI OAuth/ChatGPT 上游不可能服务明确属于其他
+	// 厂商的模型，不能因为开启透传就让该账号抢占 deepseek-* / glm-* 等请求。
+	// 显式 model_mapping 仍是声明支持并改写模型的途径。
 	if a.IsOpenAIPassthroughEnabled() {
+		if a.IsOpenAIOAuth() && !isOpenAIOAuthServableModel(requestedModel) && !mappingSupportsRequestedModel(mapping, requestedModel) {
+			return false
+		}
 		return true
 	}
-	mapping := a.GetModelMapping()
 	if len(mapping) == 0 {
 		if a.IsOpenAIOAuth() {
 			return isOpenAIOAuthServableModel(requestedModel)
