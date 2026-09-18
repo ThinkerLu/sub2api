@@ -32,11 +32,14 @@ the container.
 version: 1
 models:
   deepseek-flash:
-    capability_profile: deepseek-flash-vision
-    pricing_profile: deepseek-flash-vision
+    capability_profile: deepseek-v4-flash-vision-exp
+    pricing_profile: deepseek-v4-flash-vision-exp
+  glm-5.3-flash:
+    capability_profile: glm-5.3-flash
+    pricing_profile: glm-5.3-flash
 
 capability_profiles:
-  deepseek-flash-vision:
+  deepseek-v4-flash-vision-exp:
     display_name: DeepSeek V4.1 Flash
     description: DeepSeek coding and reasoning model.
     input_modalities: [text, image]
@@ -47,12 +50,25 @@ capability_profiles:
     supported_reasoning_levels: [low, high, max]
     supports_parallel_tool_calls: true
     supports_image_detail_original: false
+  glm-5.3-flash:
+    display_name: GLM-5.3-Flash
+    description: Native multimodal GLM coding model.
+    input_modalities: [text, image]
+    context_window: 1000000
+    max_context_window: 1000000
+    supports_reasoning: true
+    default_reasoning_level: high
+    supported_reasoning_levels: [low, high, max]
 
 pricing_profiles:
-  deepseek-flash-vision:
+  deepseek-v4-flash-vision-exp:
     input_price_per_token: 0.00000015
     output_price_per_token: 0.00000060
     cache_read_price_per_token: 0.000000003
+  glm-5.3-flash:
+    input_price_per_token: 0.00000015
+    output_price_per_token: 0.00000050
+    cache_read_price_per_token: 0.00000003
 ```
 
 All prices are USD per token. A model entry may select only one of the two

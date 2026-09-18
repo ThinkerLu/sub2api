@@ -113,6 +113,31 @@ func TestModelRegistryCapabilityOverridesGeneratedCodexManifest(t *testing.T) {
 	require.Equal(t, float64(1048576), models[0]["context_window"])
 }
 
+func TestModelRegistryDeploymentExampleContainsRequiredModels(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "deploy", "model-registry.example.yaml"))
+	require.NoError(t, err)
+	registry, err := NewModelRegistryFromBytes(data)
+	require.NoError(t, err)
+
+	deepseek, ok := registry.Model("deepseek-flash")
+	require.True(t, ok)
+	require.NotNil(t, deepseek.Capability)
+	require.NotNil(t, deepseek.Pricing)
+	require.Equal(t, []string{"text", "image"}, deepseek.Capability.InputModalities)
+	require.Equal(t, 1.5e-7, deepseek.Pricing.InputPricePerToken)
+	require.Equal(t, 6e-7, deepseek.Pricing.OutputPricePerToken)
+	require.Equal(t, 3e-9, deepseek.Pricing.CacheReadPricePerToken)
+
+	glm, ok := registry.Model("glm-5.3-flash")
+	require.True(t, ok)
+	require.NotNil(t, glm.Capability)
+	require.NotNil(t, glm.Pricing)
+	require.Equal(t, []string{"text", "image"}, glm.Capability.InputModalities)
+	require.Equal(t, 1.5e-7, glm.Pricing.InputPricePerToken)
+	require.Equal(t, 5e-7, glm.Pricing.OutputPricePerToken)
+	require.Equal(t, 3e-8, glm.Pricing.CacheReadPricePerToken)
+}
+
 func (r *ModelRegistry) reloadBytesForTest(data []byte) error {
 	snapshot, err := parseModelRegistrySnapshot(data)
 	if err != nil {

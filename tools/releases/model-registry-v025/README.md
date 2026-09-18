@@ -23,23 +23,37 @@ sudo ./reload.sh
 version: 1
 models:
   deepseek-flash:
-    capability_profile: deepseek-flash-vision
-    pricing_profile: deepseek-flash-vision
+    capability_profile: deepseek-v4-flash-vision-exp
+    pricing_profile: deepseek-v4-flash-vision-exp
+  glm-5.3-flash:
+    capability_profile: glm-5.3-flash
+    pricing_profile: glm-5.3-flash
 
 capability_profiles:
-  deepseek-flash-vision:
+  deepseek-v4-flash-vision-exp:
     input_modalities: [text, image]
     context_window: 1048576
     max_context_window: 1048576
     supports_reasoning: true
     default_reasoning_level: high
     supported_reasoning_levels: [low, high, max]
+  glm-5.3-flash:
+    input_modalities: [text, image]
+    context_window: 1000000
+    max_context_window: 1000000
+    supports_reasoning: true
+    default_reasoning_level: high
+    supported_reasoning_levels: [low, high, max]
 
 pricing_profiles:
-  deepseek-flash-vision:
+  deepseek-v4-flash-vision-exp:
     input_price_per_token: 0.00000015
     output_price_per_token: 0.00000060
     cache_read_price_per_token: 0.000000003
+  glm-5.3-flash:
+    input_price_per_token: 0.00000015
+    output_price_per_token: 0.00000050
+    cache_read_price_per_token: 0.00000003
 ```
 
 语义为：
@@ -47,9 +61,9 @@ pricing_profiles:
 ```text
 Codex 可见模型名：deepseek-flash
 上游请求模型名：deepseek-flash
-能力来源：deepseek-flash-vision capability profile
+能力来源：deepseek-v4-flash-vision-exp capability profile
 计费模型身份：deepseek-flash
-价格来源：deepseek-flash-vision pricing profile
+价格来源：deepseek-v4-flash-vision-exp pricing profile
 ```
 
 部署脚本只在文件不存在时复制示例，已有运营配置不会被覆盖。组价和渠道显式定价仍高于注册表基础价。
