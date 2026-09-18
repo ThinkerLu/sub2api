@@ -73,6 +73,14 @@ func TestSetOpenAICodexRoutingHintCanonicalizesOfficialServiceTiers(t *testing.T
 	})
 }
 
+func TestOpenAIWSRoutingHintModel(t *testing.T) {
+	require.Equal(t, "gpt-5.6-codex", OpenAIWSRoutingHintModel("model=gpt-5.6-codex;tier=priority"))
+	require.Equal(t, "gpt-5.6", OpenAIWSRoutingHintModel("tier=flex; model = gpt-5.6 "))
+	require.Empty(t, OpenAIWSRoutingHintModel("tier=priority"))
+	require.Empty(t, OpenAIWSRoutingHintModel("model="))
+	require.Empty(t, OpenAIWSRoutingHintModel("model=gpt-5.6;model=spoof"))
+}
+
 func TestOpenAIOAuthHTTPBuildersSendRoutingHintFromFinalBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	oauthAccount := &Account{

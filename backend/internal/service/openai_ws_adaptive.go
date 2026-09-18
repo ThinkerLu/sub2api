@@ -38,6 +38,40 @@ func (s *OpenAIGatewayService) OpenAIWSAdaptiveRouteAvailable(ctx context.Contex
 	return false, nil
 }
 
+// OpenAIWSModelRouteAvailable reports whether at least one schedulable account
+// can serve the model over the native Responses WebSocket transport. It is a
+// capability preflight, not an availability check: busy or temporarily blocked
+// WS accounts still count here so normal queueing and failover can proceed.
+func (s *OpenAIGatewayService) OpenAIWSModelRouteAvailable(
+	ctx context.Context,
+	groupID *int64,
+	model string,
+	requiredCapability OpenAIEndpointCapability,
+) (bool, error) {
+	if s == nil || s.cfg == nil {
+		return true, nil
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return true, nil
+	}
+	accounts, err := s.listSchedulableAccounts(ctx, groupID, PlatformOpenAI)
+	if err != nil {
+		return false, err
+	}
+	for i := range accounts {
+		account := &accounts[i]
+		if !account.IsModelSupported(model) ||
+			!accountSupportsOpenAICapabilities(account, requiredCapability, "") {
+			continue
+		}
+		if s.getOpenAIWSProtocolResolver().Resolve(account).Transport == OpenAIUpstreamTransportResponsesWebsocketV2 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // The adaptive session owns the warmup socket until HTTP is selected or the
 // session ends. All access is sequential, after the previous relay has joined.
 type openAIWSAdaptiveUpstream struct {

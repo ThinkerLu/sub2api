@@ -1023,6 +1023,85 @@ func TestOpenAIResponsesWebSocket_SetsClientTransportWSWhenUpgradeValid(t *testi
 	require.Equal(t, service.OpenAIClientTransportWS, service.GetOpenAIClientTransport(c))
 }
 
+type openAIWSModelRouteAccountRepoStub struct {
+	service.AccountRepository
+	accounts []service.Account
+}
+
+func (r openAIWSModelRouteAccountRepoStub) ListSchedulableByGroupIDAndPlatform(
+	context.Context,
+	int64,
+	string,
+) ([]service.Account, error) {
+	return append([]service.Account(nil), r.accounts...), nil
+}
+
+func TestOpenAIResponsesWebSocket_NoNativeWSModelRouteReturnsUpgradeRequired(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.Enabled = true
+	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
+	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
+	cfg.Gateway.OpenAIWS.ModeRouterV2Enabled = true
+	account := service.Account{
+		ID:          913,
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Credentials: map[string]any{"api_key": "sk-http-only"},
+		Extra: map[string]any{
+			"openai_apikey_responses_websockets_v2_mode": service.OpenAIWSIngressModeHTTPBridge,
+		},
+	}
+	repo := openAIWSModelRouteAccountRepoStub{accounts: []service.Account{account}}
+	gatewayService := service.NewOpenAIGatewayService(
+		repo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		cfg,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+	h := newOpenAIHandlerForPreviousResponseIDValidation(t, nil)
+	h.gatewayService = gatewayService
+	h.cfg = cfg
+	wsServer := newOpenAIWSHandlerTestServer(t, h, middleware.AuthSubject{UserID: 1, Concurrency: 1})
+	defer wsServer.Close()
+
+	dialCtx, cancelDial := context.WithTimeout(context.Background(), 3*time.Second)
+	clientConn, response, err := coderws.Dial(
+		dialCtx,
+		"ws"+strings.TrimPrefix(wsServer.URL, "http")+"/openai/v1/responses",
+		&coderws.DialOptions{HTTPHeader: http.Header{
+			"X-Codex-Routing-Hint": []string{"model=gpt-http-only"},
+		}},
+	)
+	cancelDial()
+	require.Error(t, err)
+	require.Nil(t, clientConn)
+	require.NotNil(t, response)
+	require.Equal(t, http.StatusUpgradeRequired, response.StatusCode)
+	_ = response.Body.Close()
+}
+
 func TestOpenAIResponsesWebSocket_InvalidUpgradeDoesNotSetTransport(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

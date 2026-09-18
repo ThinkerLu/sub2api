@@ -268,6 +268,48 @@ func TestAdaptivePreflightChecksMixedAndLegacyRoutes(t *testing.T) {
 	}
 }
 
+func TestOpenAIWSModelRouteAvailable(t *testing.T) {
+	s, a, _, _ := adaptiveFixture()
+	wsAccount := *a
+	wsAccount.ID = 911
+	wsAccount.Credentials = map[string]any{
+		"api_key":       "sk-ws",
+		"model_mapping": map[string]any{"gpt-ws": "gpt-ws"},
+	}
+	wsAccount.Extra = map[string]any{
+		"openai_apikey_responses_websockets_v2_mode": OpenAIWSIngressModePassthrough,
+	}
+	httpOnly := *a
+	httpOnly.ID = 912
+	httpOnly.Credentials = map[string]any{
+		"api_key":       "sk-http",
+		"model_mapping": map[string]any{"gpt-http": "gpt-http"},
+	}
+	httpOnly.Extra = map[string]any{
+		"openai_apikey_responses_websockets_v2_mode": OpenAIWSIngressModeHTTPBridge,
+	}
+	s.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{wsAccount, httpOnly}}
+
+	available, err := s.OpenAIWSModelRouteAvailable(context.Background(), nil, "gpt-ws", OpenAIEndpointCapabilityChatCompletions)
+	require.NoError(t, err)
+	require.True(t, available)
+
+	available, err = s.OpenAIWSModelRouteAvailable(context.Background(), nil, "gpt-http", OpenAIEndpointCapabilityChatCompletions)
+	require.NoError(t, err)
+	require.False(t, available)
+
+	available, err = s.OpenAIWSModelRouteAvailable(context.Background(), nil, "gpt-unknown", OpenAIEndpointCapabilityChatCompletions)
+	require.NoError(t, err)
+	require.False(t, available)
+}
+
+func TestOpenAIWSHTTPFallbackMarker(t *testing.T) {
+	key := fmt.Sprintf("test-session-%d", time.Now().UnixNano())
+	require.False(t, OpenAIWSHTTPFallbackRequired(key))
+	MarkOpenAIWSHTTPFallback(key)
+	require.True(t, OpenAIWSHTTPFallbackRequired(key))
+}
+
 type adaptiveBlockingHTTP struct {
 	started   chan struct{}
 	cancelled chan struct{}

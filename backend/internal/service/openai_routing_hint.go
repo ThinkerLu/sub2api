@@ -13,6 +13,29 @@ import (
 
 const openAICodexRoutingHintHeader = "x-codex-routing-hint"
 
+// OpenAIWSRoutingHintModel extracts the model from the Codex-owned routing
+// hint. The hint is advisory for early transport selection; the response.create
+// payload remains authoritative once it arrives.
+func OpenAIWSRoutingHintModel(value string) string {
+	seenModel := false
+	modelValue := ""
+	for _, part := range strings.Split(value, ";") {
+		key, value, ok := strings.Cut(part, "=")
+		if !ok || !strings.EqualFold(strings.TrimSpace(key), "model") {
+			continue
+		}
+		if seenModel {
+			return ""
+		}
+		seenModel = true
+		modelValue = strings.TrimSpace(value)
+		if modelValue == "" || strings.ContainsAny(modelValue, ";=") {
+			return ""
+		}
+	}
+	return modelValue
+}
+
 // setOpenAICodexRoutingHint mirrors the Codex backend routing-hint contract for
 // OpenAI OAuth requests. The request model must already be the final upstream
 // slug and serviceTier must already reflect any local policy rewrite/filter.

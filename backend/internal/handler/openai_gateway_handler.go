@@ -168,6 +168,18 @@ func openAIChannelForwardModel(mapping service.ChannelMappingResult, requestedMo
 	return requestedModel
 }
 
+func openAIWSHTTPFallbackSessionKey(apiKeyID int64, c *gin.Context) string {
+	if apiKeyID <= 0 || c == nil {
+		return ""
+	}
+	for _, name := range []string{"thread-id", "session-id", "x-client-request-id"} {
+		if value := strings.TrimSpace(c.GetHeader(name)); value != "" {
+			return fmt.Sprintf("%d:%s", apiKeyID, value)
+		}
+	}
+	return ""
+}
+
 type grokMediaEligibilityProber interface {
 	ProbeMediaEligibility(ctx context.Context, accountID int64) (bool, string, error)
 }
@@ -2318,11 +2330,40 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	if !h.ensureResponsesDependencies(c, reqLog) {
 		return
 	}
+	clientLifecycleCtx := c.Request.Context()
+	ctx := clientLifecycleCtx
+	fallbackSessionKey := openAIWSHTTPFallbackSessionKey(apiKey.ID, c)
+	if service.OpenAIWSHTTPFallbackRequired(fallbackSessionKey) {
+		reqLog.Info("openai.websocket_http_fallback_required")
+		h.errorResponse(c, http.StatusUpgradeRequired, "invalid_request_error", "This model requires the HTTP Responses transport")
+		return
+	}
+	if h.gatewayService != nil {
+		if hintModel := service.OpenAIWSRoutingHintModel(c.GetHeader("x-codex-routing-hint")); hintModel != "" {
+			mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, hintModel)
+			model := openAIChannelForwardModel(mapping, hintModel)
+			available, routeErr := h.gatewayService.OpenAIWSModelRouteAvailable(
+				ctx,
+				apiKey.GroupID,
+				model,
+				service.OpenAIEndpointCapabilityChatCompletions,
+			)
+			if routeErr != nil {
+				reqLog.Warn("openai.websocket_model_route_lookup_failed", zap.Error(routeErr))
+				h.errorResponse(c, http.StatusServiceUnavailable, "service_unavailable", "Unable to resolve websocket transport")
+				return
+			}
+			if !available {
+				service.MarkOpenAIWSHTTPFallback(fallbackSessionKey)
+				reqLog.Info("openai.websocket_model_http_fallback", zap.String("session_initial_model", model))
+				h.errorResponse(c, http.StatusUpgradeRequired, "invalid_request_error", "This model has no WebSocket-capable account")
+				return
+			}
+		}
+	}
 	reqLog.Info("openai.websocket_ingress_started")
 	clientIP := ip.GetClientIP(c)
 	userAgent := strings.TrimSpace(c.GetHeader("User-Agent"))
-	clientLifecycleCtx := c.Request.Context()
-	ctx := clientLifecycleCtx
 	maxIngressConnections := 0
 	if h.cfg != nil {
 		maxIngressConnections = h.cfg.Gateway.OpenAIWS.MaxIngressConnectionsPerAPIKey
@@ -2488,6 +2529,32 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	// 解析渠道级模型映射
 	channelMappingWS, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, reqModel)
 	wsForwardModel := openAIChannelForwardModel(channelMappingWS, reqModel)
+	requestPlatform := openAICompatibleRequestPlatform(ctx, apiKey)
+	requiredTransport := service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
+	if requestPlatform == service.PlatformGrok {
+		requiredTransport = service.OpenAIUpstreamTransportHTTPSSE
+	}
+	requiredCapability := service.OpenAIEndpointCapabilityChatCompletions
+	if imageIntent && requestPlatform == service.PlatformOpenAI {
+		requiredCapability = service.OpenAIEndpointCapabilityResponses
+	}
+	wsModelAvailable, wsModelRouteErr := h.gatewayService.OpenAIWSModelRouteAvailable(
+		ctx,
+		apiKey.GroupID,
+		wsForwardModel,
+		requiredCapability,
+	)
+	if wsModelRouteErr != nil {
+		reqLog.Warn("openai.websocket_model_route_lookup_failed", zap.Error(wsModelRouteErr))
+		closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "failed to resolve websocket transport")
+		return
+	}
+	if !wsModelAvailable {
+		service.MarkOpenAIWSHTTPFallback(fallbackSessionKey)
+		reqLog.Info("openai.websocket_model_http_fallback", zap.String("session_initial_model", wsForwardModel))
+		closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "model has no websocket-capable account; retry over HTTP")
+		return
+	}
 
 	var currentUserRelease func()
 	var currentAccountRelease func()
@@ -2537,11 +2604,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	requestPlatform := openAICompatibleRequestPlatform(ctx, apiKey)
-	requiredTransport := service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
-	if requestPlatform == service.PlatformGrok {
-		requiredTransport = service.OpenAIUpstreamTransportHTTPSSE
-	}
 	if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("openai.websocket_billing_eligibility_check_failed", zap.Error(err))
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")
@@ -2622,14 +2684,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return false
 		}
 		return ensureUserSlotHeld()
-	}
-
-	// 与 HTTP Responses 路径保持一致：生图意图请求要求账号支持 Responses API（#4417）。
-	// WSv2 传输本身已隐含 Responses 支持，此处为防御性对齐。
-	// 使用 IsExplicitImageGenerationIntent 排除被动 namespace 声明（#4476）。
-	requiredCapability := service.OpenAIEndpointCapabilityChatCompletions
-	if service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, firstMessage) && requestPlatform == service.PlatformOpenAI {
-		requiredCapability = service.OpenAIEndpointCapabilityResponses
 	}
 
 	// 分组利润控制：WS 桥按连接装配定价上下文并装门（选号与抢槽共用该

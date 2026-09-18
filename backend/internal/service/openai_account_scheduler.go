@@ -2413,16 +2413,10 @@ func (s *OpenAIGatewayService) isOpenAIAccountTransportCompatible(account *Accou
 		return false
 	}
 	if requiredTransport == OpenAIUpstreamTransportResponsesWebsocketV2Ingress {
-		if s.cfg == nil || !s.cfg.Gateway.OpenAIWS.ModeRouterV2Enabled {
-			return s.getOpenAIWSProtocolResolver().Resolve(account).Transport == OpenAIUpstreamTransportResponsesWebsocketV2
-		}
-		mode := account.ResolveOpenAIResponsesWebSocketV2Mode(s.cfg.Gateway.OpenAIWS.IngressModeDefault)
-		switch mode {
-		case OpenAIWSIngressModeCtxPool, OpenAIWSIngressModePassthrough, OpenAIWSIngressModeAdaptive, OpenAIWSIngressModeHTTPBridge, OpenAIWSIngressModeShared, OpenAIWSIngressModeDedicated:
-			return true
-		default:
-			return false
-		}
+		// The client already selected WebSocket ingress. Do not bind that
+		// session to an HTTP-only account; such a model/session must fall back
+		// to the HTTP endpoint before opening the client socket.
+		return s.getOpenAIWSProtocolResolver().Resolve(account).Transport == OpenAIUpstreamTransportResponsesWebsocketV2
 	}
 	return s.getOpenAIWSProtocolResolver().Resolve(account).Transport == requiredTransport
 }
