@@ -10,6 +10,7 @@ import (
 const (
 	PricingSourceGroup    = "group"
 	PricingSourceChannel  = "channel"
+	PricingSourceRegistry = "registry"
 	PricingSourceLiteLLM  = "litellm"
 	PricingSourceFallback = "fallback"
 )
@@ -168,6 +169,11 @@ func matchGroupModelPricing(group *Group, model string) *ChannelModelPricing {
 
 // resolveBasePricing 从 LiteLLM 或 Fallback 获取基础定价
 func (r *ModelPricingResolver) resolveBasePricing(model string) (*ModelPricing, string) {
+	if registry := CurrentModelRegistry(); registry != nil {
+		if pricing, ok := registry.Pricing(model); ok {
+			return pricing, PricingSourceRegistry
+		}
+	}
 	pricing, err := r.billingService.GetModelPricing(model)
 	if err != nil {
 		slog.Debug("failed to get model pricing from LiteLLM, using fallback",

@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/Wei-Shaw/sub2api/internal/setup"
 	"github.com/Wei-Shaw/sub2api/internal/web"
 
@@ -139,6 +140,28 @@ func runMainServer() {
 	if err := logger.Init(logger.OptionsFromConfig(cfg.Log)); err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
+	modelRegistry, err := service.InitializeModelRegistry(cfg)
+	if err != nil {
+		log.Fatalf("Failed to initialize model registry: %v", err)
+	}
+	defer modelRegistry.Close()
+	reloadQuit := make(chan struct{})
+	defer close(reloadQuit)
+	reloadSignal := make(chan os.Signal, 1)
+	signal.Notify(reloadSignal, syscall.SIGHUP)
+	defer signal.Stop(reloadSignal)
+	go func() {
+		for {
+			select {
+			case <-reloadSignal:
+				if err := modelRegistry.Reload(); err != nil {
+					log.Printf("Model registry reload failed; keeping previous snapshot: %v", err)
+				}
+			case <-reloadQuit:
+				return
+			}
+		}
+	}()
 	if cfg.RunMode == config.RunModeSimple {
 		log.Println("⚠️  WARNING: Running in SIMPLE mode - billing and quota checks are DISABLED")
 	}

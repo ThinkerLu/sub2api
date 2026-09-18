@@ -87,6 +87,7 @@ type Config struct {
 	Default                 DefaultConfig                 `mapstructure:"default"`
 	RateLimit               RateLimitConfig               `mapstructure:"rate_limit"`
 	Pricing                 PricingConfig                 `mapstructure:"pricing"`
+	ModelRegistry           ModelRegistryConfig           `mapstructure:"model_registry"`
 	Gateway                 GatewayConfig                 `mapstructure:"gateway"`
 	APIKeyAuth              APIKeyAuthCacheConfig         `mapstructure:"api_key_auth_cache"`
 	SubscriptionCache       SubscriptionCacheConfig       `mapstructure:"subscription_cache"`
@@ -673,6 +674,14 @@ type PricingConfig struct {
 	UpdateIntervalHours int `mapstructure:"update_interval_hours"`
 	// 哈希校验间隔（分钟）
 	HashCheckIntervalMinutes int `mapstructure:"hash_check_interval_minutes"`
+}
+
+// ModelRegistryConfig 控制外置模型能力/价格档案。数据文件由部署目录挂载，
+// 不打包进镜像；服务启动时读取，并按配置间隔检测文件变化后原子重载。
+type ModelRegistryConfig struct {
+	Enabled               bool   `mapstructure:"enabled"`
+	File                  string `mapstructure:"file"`
+	ReloadIntervalSeconds int    `mapstructure:"reload_interval_seconds"`
 }
 
 type ServerConfig struct {
@@ -2472,6 +2481,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.antigravity_extra_retries", 10)
 	viper.SetDefault("gateway.max_body_size", int64(256*1024*1024))
 	viper.SetDefault("gateway.text_max_body_size", int64(32*1024*1024))
+	viper.SetDefault("model_registry.enabled", false)
+	viper.SetDefault("model_registry.file", "./model-registry/model-registry.yaml")
+	viper.SetDefault("model_registry.reload_interval_seconds", 5)
 	viper.SetDefault("gateway.upstream_response_read_max_bytes", DefaultUpstreamResponseReadMaxBytes)
 	viper.SetDefault("gateway.models_list_read_max_bytes", DefaultModelsListReadMaxBytes)
 	viper.SetDefault("gateway.proxy_probe_response_read_max_bytes", int64(1024*1024))
@@ -3285,6 +3297,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.ModelsListReadMaxBytes <= 0 {
 		return fmt.Errorf("gateway.models_list_read_max_bytes must be positive")
+	}
+	if c.ModelRegistry.Enabled && strings.TrimSpace(c.ModelRegistry.File) == "" {
+		return fmt.Errorf("model_registry.file must be configured when model_registry.enabled is true")
+	}
+	if c.ModelRegistry.ReloadIntervalSeconds < 0 {
+		return fmt.Errorf("model_registry.reload_interval_seconds must be non-negative")
 	}
 	if c.Gateway.ProxyProbeResponseReadMaxBytes <= 0 {
 		return fmt.Errorf("gateway.proxy_probe_response_read_max_bytes must be positive")

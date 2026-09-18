@@ -929,6 +929,11 @@ func buildCodexModelsManifest(
 			descriptor.DisplayName = modelID
 			descriptor.Description = configuredCodexCustomDescription
 		}
+		if registry := CurrentModelRegistry(); registry != nil {
+			if capability, ok := registry.Capability(modelID); ok {
+				applyModelRegistryCapability(&descriptor, capability)
+			}
+		}
 		encoded, err := json.Marshal(descriptor)
 		if err != nil {
 			return nil, err
@@ -2180,6 +2185,10 @@ func (s *OpenAIGatewayService) CompleteAPIKeyCodexModelsManifestForClient(manife
 		return err
 	}
 	body, err = adjustAPIKeyCodexModelsManifest(body, account)
+	if err != nil {
+		return err
+	}
+	body, err = applyModelRegistryToCodexManifest(body)
 	if err != nil {
 		return err
 	}

@@ -1216,6 +1216,11 @@ func (s *BillingService) HasIdentifiedTokenPricing(model string) bool {
 	if model == "" {
 		return false
 	}
+	if registry := CurrentModelRegistry(); registry != nil {
+		if _, ok := registry.Pricing(model); ok {
+			return true
+		}
+	}
 	if s.pricingService != nil {
 		// 仅有图片价的条目不能用于 token 计费，口径与 GetModelPricing 保持一致。
 		if pricing := s.pricingService.GetIdentifiedModelPricing(model); pricing != nil && !pricing.TokenPricingAbsent {
@@ -1238,6 +1243,14 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*ModelPricing, error) {
 	// 标准化模型名称（转小写）
 	model = strings.ToLower(model)
+
+	// 外置模型注册表是显式运营配置，优先于动态价格目录和内置兜底价。
+	// 组价/渠道价仍在 ModelPricingResolver 上层覆盖，保持既有优先级。
+	if registry := CurrentModelRegistry(); registry != nil {
+		if pricing, ok := registry.Pricing(model); ok {
+			return pricing, nil
+		}
+	}
 
 	// 1. 优先从动态价格服务获取
 	if s.pricingService != nil {
