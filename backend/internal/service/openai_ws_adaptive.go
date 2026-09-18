@@ -59,13 +59,29 @@ func (s *OpenAIGatewayService) OpenAIWSModelRouteAvailable(
 	if err != nil {
 		return false, err
 	}
+	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
+	scheduler := &defaultOpenAIAccountScheduler{service: s}
 	for i := range accounts {
 		account := &accounts[i]
-		if !account.IsModelSupported(model) ||
-			!accountSupportsOpenAICapabilities(account, requiredCapability, "") {
+		if !account.IsSchedulable() {
 			continue
 		}
-		if s.getOpenAIWSProtocolResolver().Resolve(account).Transport == OpenAIUpstreamTransportResponsesWebsocketV2 {
+		req := OpenAIAccountScheduleRequest{
+			GroupID:            groupID,
+			Platform:           PlatformOpenAI,
+			RequestedModel:     model,
+			RequiredTransport:  OpenAIUpstreamTransportResponsesWebsocketV2Ingress,
+			RequiredCapability: requiredCapability,
+		}
+		// Reuse the scheduler's eligibility checks so quota-paused, runtime-blocked,
+		// group-incompatible and unsupported accounts cannot make the handshake
+		// preflight claim that a usable native WS route exists. Busy accounts remain
+		// eligible here because concurrency/load is intentionally not part of this
+		// capability check.
+		if compatible, _ := scheduler.isAccountRequestCompatibleReason(ctx, account, req); !compatible {
+			continue
+		}
+		if scheduler.isAccountTransportCompatible(account, req.RequiredTransport) {
 			return true, nil
 		}
 	}

@@ -301,6 +301,23 @@ func TestOpenAIWSModelRouteAvailable(t *testing.T) {
 	available, err = s.OpenAIWSModelRouteAvailable(context.Background(), nil, "gpt-unknown", OpenAIEndpointCapabilityChatCompletions)
 	require.NoError(t, err)
 	require.False(t, available)
+
+	quotaPausedOAuth := *a
+	quotaPausedOAuth.ID = 913
+	quotaPausedOAuth.Type = AccountTypeOAuth
+	quotaPausedOAuth.Credentials = map[string]any{"access_token": "token"}
+	quotaPausedOAuth.Extra = map[string]any{
+		"openai_oauth_responses_websockets_v2_mode": OpenAIWSIngressModeAdaptive,
+		"openai_passthrough":                        true,
+		"auto_pause_7d_threshold":                   0.8,
+		"codex_7d_used_percent":                     100.0,
+		"codex_7d_reset_at":                         time.Now().Add(time.Hour).Format(time.RFC3339),
+		"codex_usage_updated_at":                    time.Now().Format(time.RFC3339),
+	}
+	s.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{quotaPausedOAuth}}
+	available, err = s.OpenAIWSModelRouteAvailable(context.Background(), nil, "gpt-blocked", OpenAIEndpointCapabilityChatCompletions)
+	require.NoError(t, err)
+	require.False(t, available, "quota-paused WS accounts must trigger immediate HTTP fallback")
 }
 
 func TestOpenAIWSHTTPFallbackMarker(t *testing.T) {
