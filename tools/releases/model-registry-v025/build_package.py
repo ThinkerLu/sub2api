@@ -35,6 +35,11 @@ def sha(path):
         return hashlib.file_digest(f, "sha256").hexdigest()
 
 
+def sha_trimmed(path):
+    # Mirror repository.migrationChecksum: hash strings.TrimSpace(file).
+    return hashlib.sha256(Path(path).read_text().strip().encode()).hexdigest()
+
+
 def run(args, log, cwd=WORK, env=ENV):
     print("RUN", " ".join(map(str, args)), flush=True)
     result = subprocess.run(list(map(str, args)), cwd=cwd, env=env, text=True,
@@ -159,9 +164,9 @@ manifest = dict(commit=COMMIT, base_commit=BASE_COMMIT, version=VERSION, image=I
                 archive=archive.name, archive_sha256=archive_sha, archive_bytes=archive.stat().st_size,
                 retained_commits=["17d69fff6", "d3612967e"],
                 upstream_tag="v0.2.5", frontend_source_commit=COMMIT,
-                migration_238_opencode_go_platform_sha256=sha(source / "backend/migrations/238_opencode_go_platform.sql"),
-                migration_238_purge_unlimited_user_platform_quotas_sha256=sha(source / "backend/migrations/238_purge_unlimited_user_platform_quotas.sql"),
-                migration_238_usage_log_upstream_transport_sha256=sha(source / "backend/migrations/238_usage_log_upstream_transport.sql"),
+                migration_238_opencode_go_platform_sha256=sha_trimmed(source / "backend/migrations/238_opencode_go_platform.sql"),
+                migration_238_purge_unlimited_user_platform_quotas_sha256=sha_trimmed(source / "backend/migrations/238_purge_unlimited_user_platform_quotas.sql"),
+                migration_238_usage_log_upstream_transport_sha256=sha_trimmed(source / "backend/migrations/238_usage_log_upstream_transport.sql"),
                 build_dir=str(WORK))
 (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 print(json.dumps(manifest, indent=2), flush=True)

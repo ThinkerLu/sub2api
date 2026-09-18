@@ -36,14 +36,14 @@ capability_profiles:
     max_context_window: 1048576
     supports_reasoning: true
     default_reasoning_level: high
-    supported_reasoning_levels: [none, low, high, max]
+    supported_reasoning_levels: [low, medium, high, xhigh, max, ultra]
   glm-5.3-flash:
     input_modalities: [text, image]
     context_window: 1000000
     max_context_window: 1000000
     supports_reasoning: true
     default_reasoning_level: high
-    supported_reasoning_levels: [low, high, max]
+    supported_reasoning_levels: [low, medium, high, xhigh, max, ultra]
 
 pricing_profiles:
   deepseek-v4-flash-vision-exp:

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local release-script tests; no production access or credentials."""
 import hashlib
+from pathlib import Path
 import json
 from pathlib import Path
 import tempfile
@@ -27,6 +28,12 @@ COMPOSE = '''services:
 
 
 class ReleaseHelpersTests(unittest.TestCase):
+    def test_known_additive_migrations_match_runtime_checksum(self):
+        migrations = release.HERE.parents[2] / 'backend' / 'migrations'
+        for name, expected in release.KNOWN_ADDITIVE_MIGRATIONS.items():
+            actual = hashlib.sha256((migrations / name).read_text().strip().encode()).hexdigest()
+            self.assertEqual(actual, expected, name)
+
     def test_upsert_env_preserves_comments_and_updates_exact_keys(self):
         text = '# keep\nOTHER=1\nMODEL_REGISTRY_ENABLED=false\n'
         updated = release.upsert_env(text, release.REGISTRY_ENV)

@@ -36,10 +36,12 @@ REGISTRY_COMPOSE_ENV = {
     'MODEL_REGISTRY_RELOAD_INTERVAL_SECONDS': '${MODEL_REGISTRY_RELOAD_INTERVAL_SECONDS:-5}',
 }
 
+# The application migration runner hashes strings.TrimSpace(file_contents),
+# not raw file bytes. These values must mirror repository.migrationChecksum.
 KNOWN_ADDITIVE_MIGRATIONS = {
-    '238_opencode_go_platform.sql': '35ce9b168aef3fdf29ac1ab02041abf6ce568d41b9dc18f32924d6fde67cb093',
-    '238_purge_unlimited_user_platform_quotas.sql': '2ea9aea4b152531184b14559dc413ad2c33eadc9985b49ff90c579b3e1f1592e',
-    '238_usage_log_upstream_transport.sql': '4590820148f5f9eee50cae85b73cd453336bdb76ce167a253f5292c14b5cc75d',
+    '238_opencode_go_platform.sql': '6f987e251519bd3759e60da44620a5d777494cceb333b6ce394aa0ea536ef5a2',
+    '238_purge_unlimited_user_platform_quotas.sql': '052756d1b1ac951f002034bf0434f8a6ea943ec0a2a34541ca4374ba6278cce7',
+    '238_usage_log_upstream_transport.sql': 'a3c5e3e2d7fe680601559a0d01f4e76138fa2774544510e7804217e831bc8383',
 }
 REQUIRED_MIGRATIONS = (
     '238_opencode_go_platform.sql',
