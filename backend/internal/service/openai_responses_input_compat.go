@@ -1,10 +1,98 @@
 package service
 
 import (
+	"bytes"
 	"strings"
+
+	"github.com/tidwall/gjson"
 )
 
 const openAIResponsesInputTextMaxChars = 10000000
+
+// sanitizeOpenAIResponsesOrphanToolOutputsRaw removes orphan tool outputs
+// without decoding the whole request into map[string]any. Large image history
+// remains borrowed JSON fragments while only call/reference identifiers are
+// scanned.
+func sanitizeOpenAIResponsesOrphanToolOutputsRaw(body []byte) ([]byte, bool, error) {
+	if len(body) == 0 {
+		return body, false, nil
+	}
+	object, isNull, err := parseOpenAIJSONObject(body)
+	if err != nil || isNull {
+		return body, false, err
+	}
+	previous, _ := object.get("previous_response_id")
+	if previous.Type == gjson.String && strings.TrimSpace(previous.String()) != "" {
+		return body, false, nil
+	}
+	input, _ := object.get("input")
+	if !input.IsArray() {
+		return body, false, nil
+	}
+
+	toolCallIDs := make(map[string]struct{})
+	referenceIDs := make(map[string]struct{})
+	input.ForEach(func(_, item gjson.Result) bool {
+		itemType := strings.TrimSpace(item.Get("type").String())
+		if itemType == "item_reference" {
+			if id := strings.TrimSpace(item.Get("id").String()); id != "" {
+				referenceIDs[id] = struct{}{}
+			}
+			return true
+		}
+		if !isCodexToolCallContextItemType(itemType) {
+			return true
+		}
+		id := strings.TrimSpace(item.Get("call_id").String())
+		if id == "" {
+			id = strings.TrimSpace(item.Get("id").String())
+		}
+		if id != "" {
+			toolCallIDs[id] = struct{}{}
+		}
+		return true
+	})
+
+	isOrphan := func(item gjson.Result) bool {
+		itemType := strings.TrimSpace(item.Get("type").String())
+		if !isCodexToolCallOutputItemType(itemType) {
+			return false
+		}
+		callID := strings.TrimSpace(item.Get("call_id").String())
+		if callID == "" && itemType == "function_call_output" && strings.TrimSpace(item.Get("name").String()) != "" {
+			return false
+		}
+		_, hasCall := toolCallIDs[callID]
+		_, hasReference := referenceIDs[callID]
+		return callID == "" || (!hasCall && !hasReference)
+	}
+
+	changed := false
+	input.ForEach(func(_, item gjson.Result) bool {
+		changed = isOrphan(item)
+		return !changed
+	})
+	if !changed {
+		return body, false, nil
+	}
+	result := object.rewriteWith(nil, nil, nil, map[string]func(*bytes.Buffer){"input": func(out *bytes.Buffer) {
+		out.WriteByte('[')
+		first := true
+		input.ForEach(func(_, item gjson.Result) bool {
+			if isOrphan(item) {
+				return true
+			}
+			if !first {
+				out.WriteByte(',')
+			}
+			first = false
+			out.WriteString(item.Raw)
+			return true
+		})
+		out.WriteByte(']')
+	}})
+	return result, true, nil
+}
 
 // sanitizeOpenAIResponsesOrphanToolOutputs removes tool-output items that have
 // no matching call or item reference anywhere in the current input. Named

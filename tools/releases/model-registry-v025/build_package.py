@@ -16,11 +16,12 @@ HERE = Path(__file__).resolve().parent
 REPO = Path('/Users/thinkerlu/Documents/apiProxy/sub2api/ws-adaptive-http-bridge')
 COMMIT = os.environ["SUB2API_RELEASE_COMMIT"]
 BASE_COMMIT = "86f93c28ee34cc74b629dafb748bd5ac5ca8c5ea"
-VERSION = "v0.2.5-model-registry"
-IMAGE = "sub2api:v0.2.5-model-registry-" + COMMIT[:9]
+VERSION = os.environ.get("SUB2API_RELEASE_VERSION", "v0.2.5-model-registry")
+IMAGE_TAG = os.environ.get("SUB2API_RELEASE_IMAGE_TAG", "v0.2.5-model-registry")
+IMAGE = "sub2api:" + IMAGE_TAG + "-" + COMMIT[:9]
 BASE_IMAGE = "sub2api:oom-fix-ae78db6d3"
 BASE_IMAGE_ID = "sha256:df0b67a341f6ddddc579f9d75e5d2e789f4eb0a7dbd8fbc2cf61a04aae40ef29"
-GO = "/tmp/sub2api-oom-toolchain127/go/bin/go"
+GO = os.environ.get("SUB2API_GO", "/tmp/sub2api-oom-toolchain127/go/bin/go")
 DOCKER = ["/opt/homebrew/bin/docker", "--context", "colima-sub2api-build"]
 OUT = Path(os.environ.get("SUB2API_RELEASE_OUTPUT", str(HERE / "image")))
 OUT.mkdir(exist_ok=True)
@@ -140,7 +141,7 @@ finally:
 
 raw = WORK / "image.tar"
 run(DOCKER + ["save", "-o", raw, IMAGE], "image-save.log")
-archive = OUT / f"sub2api-v0.2.5-model-registry-{COMMIT[:9]}.tar.gz"
+archive = OUT / f"sub2api-{IMAGE_TAG}-{COMMIT[:9]}.tar.gz"
 with raw.open("rb") as src, archive.open("wb") as dst, gzip.GzipFile(filename="", mode="wb", fileobj=dst, compresslevel=6, mtime=0) as gz:
     shutil.copyfileobj(src, gz, 1024 * 1024)
 with gzip.open(archive, "rb") as f:

@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 var codexModelMap = map[string]string{
@@ -309,20 +311,27 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 
 	// 续链场景保留 item_reference 与 id，避免 call_id 上下文丢失。
 	if input, ok := reqBody["input"].([]any); ok {
+		inputModified := false
 		if normalizedInput, modified := normalizeCodexToolRoleMessages(input); modified {
 			input = normalizedInput
-			result.Modified = true
+			inputModified = true
 		}
 		if normalizedInput, modified := normalizeCodexMessageContentText(input); modified {
 			input = normalizedInput
-			result.Modified = true
+			inputModified = true
 		}
-		input = filterCodexInputWithOptions(input, codexInputFilterOptions{
+		filteredInput, modified := filterCodexInputWithOptionsResult(input, codexInputFilterOptions{
 			PreserveReferences: needsToolContinuation,
 			PreserveCallIDs:    opts.PreserveToolCallIDs,
 		})
-		reqBody["input"] = input
-		result.Modified = true
+		if modified {
+			input = filteredInput
+			inputModified = true
+		}
+		if inputModified {
+			reqBody["input"] = input
+			result.Modified = true
+		}
 	} else if inputStr, ok := reqBody["input"].(string); ok {
 		// ChatGPT codex endpoint requires input to be a list, not a string.
 		// Convert string input to the expected message array format.
@@ -1485,6 +1494,32 @@ func applyCodexClientMetadata(reqBody map[string]any, account *Account) bool {
 	}
 }
 
+func applyCodexClientMetadataRaw(body []byte, account *Account) ([]byte, bool, error) {
+	if len(body) == 0 || account == nil {
+		return body, false, nil
+	}
+	deviceID := strings.TrimSpace(account.GetOpenAIDeviceID())
+	if deviceID == "" {
+		return body, false, nil
+	}
+	root := parseRawJSONView(body)
+	if !root.IsObject() {
+		return body, false, nil
+	}
+	metadata := root.Get("client_metadata")
+	if metadata.Exists() && metadata.Type != gjson.Null && !metadata.IsObject() {
+		return body, false, nil
+	}
+	if existing := metadata.Get("x-codex-installation-id"); existing.Type == gjson.String && strings.TrimSpace(existing.String()) != "" {
+		return body, false, nil
+	}
+	updated, err := sjson.SetBytes(body, "client_metadata.x-codex-installation-id", deviceID)
+	if err != nil {
+		return body, false, err
+	}
+	return updated, true, nil
+}
+
 // applyInstructions 处理 instructions 字段：仅在 instructions 为空时填充默认值。
 func applyInstructions(reqBody map[string]any, isCodexCLI bool) bool {
 	if !isInstructionsEmpty(reqBody) {
@@ -1523,6 +1558,11 @@ func filterCodexInput(input []any, preserveReferences bool) []any {
 	return filterCodexInputWithOptions(input, codexInputFilterOptions{
 		PreserveReferences: preserveReferences,
 	})
+}
+
+func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []any {
+	filtered, _ := filterCodexInputWithOptionsResult(input, opts)
+	return filtered
 }
 
 func normalizeCodexFilterCallID(itemType, id string, preserve bool) string {
@@ -1591,15 +1631,49 @@ func codexInputCallIDs(input []any) map[string]struct{} {
 	return callIDs
 }
 
-func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []any {
-	filtered := make([]any, 0, len(input))
+func filterCodexInputWithOptionsResult(input []any, opts codexInputFilterOptions) ([]any, bool) {
+	if len(input) == 0 {
+		return input, false
+	}
+
 	referenceIDMappings := codexItemReferenceIDMappings(input, opts.PreserveCallIDs)
 	inputItemIDs := codexInputItemIDs(input)
 	inputCallIDs := codexInputCallIDs(input)
+
+	// Keep the original slice on the overwhelmingly common no-op path. Only
+	// allocate once an item actually changes, then copy the unchanged prefix.
+	filtered := input
+	unchangedPrefix := 0
+	copied := false
+	changed := false
+	ensureOutput := func() {
+		if copied {
+			return
+		}
+		next := make([]any, 0, len(input))
+		next = append(next, input[:unchangedPrefix]...)
+		filtered = next
+		copied = true
+	}
+	markChanged := func() {
+		if changed {
+			return
+		}
+		ensureOutput()
+		changed = true
+	}
+	appendUnchanged := func(item any) {
+		if changed {
+			filtered = append(filtered, item)
+			return
+		}
+		unchangedPrefix++
+	}
+
 	for _, item := range input {
 		m, ok := item.(map[string]any)
 		if !ok {
-			filtered = append(filtered, item)
+			appendUnchanged(item)
 			continue
 		}
 		typ, _ := m["type"].(string)
@@ -1626,7 +1700,15 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 		// below (id stripped when !PreserveReferences, encrypted_content
 		// preserved either way), which is safe and needs no special-casing.
 		if typ == "reasoning" {
-			newItem := make(map[string]any, len(m))
+			_, hasID := m["id"]
+			_, hasCallID := m["call_id"]
+			summary, hasSummary := m["summary"]
+			if !hasID && !hasCallID && hasSummary && summary != nil {
+				appendUnchanged(item)
+				continue
+			}
+			markChanged()
+			newItem := make(map[string]any, len(m)+1)
 			for key, value := range m {
 				if key == "id" || key == "call_id" {
 					// rs_* id replayed under store=false 404s; strip it.
@@ -1634,7 +1716,7 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 				}
 				newItem[key] = value
 			}
-			if summary, ok := newItem["summary"]; !ok || summary == nil {
+			if !hasSummary || summary == nil {
 				// Upstream requires a summary field; an empty array satisfies it.
 				newItem["summary"] = []any{}
 			}
@@ -1650,41 +1732,57 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 
 		if typ == "item_reference" {
 			if !opts.PreserveReferences {
+				markChanged()
 				continue
 			}
+			id, hasID := m["id"].(string)
+			if !hasID || !strings.HasPrefix(strings.TrimSpace(id), "call_") {
+				appendUnchanged(item)
+				continue
+			}
+			newID := ""
+			trimmedID := strings.TrimSpace(id)
+			_, referencesExistingItem := inputItemIDs[trimmedID]
+			if !referencesExistingItem {
+				if normalizedID, mapped := referenceIDMappings[trimmedID]; mapped {
+					newID = normalizedID
+				} else if _, hasSameTurnCall := inputCallIDs[trimmedID]; !hasSameTurnCall {
+					// A bare call_* reference is a legacy function-call identifier.
+					// Normalize it even when its call item lives in an earlier turn.
+					newID = normalizeCodexCallID(trimmedID)
+				}
+			}
+			if newID == "" || newID == id {
+				appendUnchanged(item)
+				continue
+			}
+			markChanged()
 			newItem := make(map[string]any, len(m))
 			for key, value := range m {
 				newItem[key] = value
 			}
-			if id, ok := newItem["id"].(string); ok && strings.HasPrefix(strings.TrimSpace(id), "call_") {
-				trimmedID := strings.TrimSpace(id)
-				_, referencesExistingItem := inputItemIDs[trimmedID]
-				if !referencesExistingItem {
-					if normalizedID, mapped := referenceIDMappings[trimmedID]; mapped {
-						newItem["id"] = normalizedID
-					} else if _, hasSameTurnCall := inputCallIDs[trimmedID]; !hasSameTurnCall {
-						// A bare call_* reference is a legacy function-call identifier.
-						// Normalize it even when its call item lives in an earlier turn.
-						newItem["id"] = normalizeCodexCallID(trimmedID)
-					}
-				}
-			}
+			newItem["id"] = newID
 			filtered = append(filtered, newItem)
 			continue
 		}
 
 		newItem := m
-		copied := false
+		itemCopied := false
+		itemChanged := false
 		// 仅在需要修改字段时创建副本，避免直接改写原始输入。
 		ensureCopy := func() {
-			if copied {
+			if itemCopied {
 				return
 			}
 			newItem = make(map[string]any, len(m))
 			for key, value := range m {
 				newItem[key] = value
 			}
-			copied = true
+			itemCopied = true
+		}
+		markItemChanged := func() {
+			ensureCopy()
+			itemChanged = true
 		}
 
 		if isCodexToolCallItemType(typ) {
@@ -1692,7 +1790,7 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 			if !ok || strings.TrimSpace(callID) == "" {
 				if id, ok := m["id"].(string); ok && strings.TrimSpace(id) != "" {
 					callID = id
-					ensureCopy()
+					markItemChanged()
 					newItem["call_id"] = callID
 				}
 			}
@@ -1700,15 +1798,17 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 			if callID != "" {
 				fixedCallID := fixCallIDPrefix(callID)
 				if fixedCallID != callID {
-					ensureCopy()
+					markItemChanged()
 					newItem["call_id"] = fixedCallID
 				}
 			}
 		}
 
 		if !isCodexToolCallItemType(typ) {
-			ensureCopy()
-			delete(newItem, "call_id")
+			if _, hasCallID := m["call_id"]; hasCallID {
+				markItemChanged()
+				delete(newItem, "call_id")
+			}
 		}
 
 		if codexInputItemRequiresName(typ) {
@@ -1722,22 +1822,29 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 				if name == "" {
 					name = "tool"
 				}
-				ensureCopy()
+				markItemChanged()
 				newItem["name"] = name
 			}
 		}
 
 		if !opts.PreserveReferences {
-			ensureCopy()
-			delete(newItem, "id")
+			if _, hasID := m["id"]; hasID {
+				markItemChanged()
+				delete(newItem, "id")
+			}
 		} else if id, ok := m["id"].(string); ok && shouldStripOpenAIResponsesInputItemID(typ, id) {
-			ensureCopy()
+			markItemChanged()
 			delete(newItem, "id")
 		}
 
+		if !itemChanged {
+			appendUnchanged(item)
+			continue
+		}
+		markChanged()
 		filtered = append(filtered, newItem)
 	}
-	return filtered
+	return filtered, changed
 }
 
 func isCodexToolCallItemType(typ string) bool {

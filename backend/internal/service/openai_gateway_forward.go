@@ -496,74 +496,107 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	if account.UsesOpenAICodexProtocol() {
-		decoded, decodeErr := ensureReqBody()
-		if decodeErr != nil {
-			return nil, decodeErr
-		}
 		// Responses OAuth 与 Chat 兼容入口保持一致：纯文本 system 可以无损提升后删除，
 		// JSON object 模式仍需在 input 中保留 JSON 指令供上游兼容校验。
 		omitPromotedSystemMessages := !strings.EqualFold(
 			strings.TrimSpace(gjson.GetBytes(body, "text.format.type").String()),
 			"json_object",
 		)
-		codexResult := codexTransformResult{}
+		transformOpts := codexOAuthTransformOptions{
+			IsCodexCLI:                          isCodexCLI,
+			IsCompact:                           isCompactRequest,
+			OmitPromotedSystemMessagesFromInput: omitPromotedSystemMessages,
+		}
 		if compatMessagesBridge {
-			codexResult = applyCodexOAuthTransformWithOptions(decoded, codexOAuthTransformOptions{
-				IsCodexCLI:                          isCodexCLI,
-				IsCompact:                           isCompactRequest,
-				SkipDefaultInstructions:             true,
-				PreserveToolCallIDs:                 true,
-				OmitPromotedSystemMessagesFromInput: omitPromotedSystemMessages,
-			})
-			ensureCodexOAuthInstructionsField(decoded)
-			markDecodedModified()
-		} else {
-			codexResult = applyCodexOAuthTransformWithOptions(decoded, codexOAuthTransformOptions{
-				IsCodexCLI:                          isCodexCLI,
-				IsCompact:                           isCompactRequest,
-				OmitPromotedSystemMessagesFromInput: omitPromotedSystemMessages,
-			})
+			transformOpts.SkipDefaultInstructions = true
+			transformOpts.PreserveToolCallIDs = true
 		}
-		if codexResult.Error != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": codexResult.Error.Error()}})
-			return nil, codexResult.Error
-		}
-		setCodexToolNameReverse(c, codexResult.ToolNameReverse)
-		if codexResult.Modified {
-			markDecodedModified()
-		}
-		// 带真实 device_id 时补齐 client_metadata 安装标识，与真实 Codex 对齐（compact 形态不同，跳过）。
-		if !isCompactRequest && applyCodexClientMetadata(decoded, account) {
-			markDecodedModified()
-		}
-		if currentClientPromptCacheKey, ok := decoded["prompt_cache_key"].(string); ok {
-			clientPromptCacheKey = currentClientPromptCacheKey
-		}
-		// Account namespace is orthogonal to fingerprint convergence: preserve
-		// each client's identity cardinality, but never reuse it across OAuth
-		// credentials after scheduler failover.
-		if !isCompactRequest && applyCodexAccountIdentityClientMetadataMap(decoded, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c)) {
-			markDecodedModified()
-		}
-		stageCodexFingerprintIDs(c, nil)
-		// 指纹收敛：一次性解析收敛 ID，请求体和出站头共享同一份 IDs（保证 turn_id 等随机字段一致）。
-		// fingerprintIDs 在此处解析，后续 buildUpstreamRequest 中使用同一份。
+
+		var fpIDs *codexFingerprintIDs
 		if !isCompactRequest {
 			var clientHeaders http.Header
 			if c != nil && c.Request != nil {
 				clientHeaders = c.Request.Header
 			}
-			fpIDs := resolveCodexFingerprintIDsFromRequest(account, clientHeaders)
+			fpIDs = resolveCodexFingerprintIDsFromRequest(account, clientHeaders)
+		}
+		stageCodexFingerprintIDs(c, nil)
+
+		codexResult := codexTransformResult{}
+		var decoded map[string]any
+		fastPathHandled := false
+		if !compatMessagesBridge && !isCompactRequest {
+			codexResult, fastPathHandled = tryCodexOAuthTransformFastPath(body, transformOpts)
+		}
+		if !fastPathHandled {
+			var decodeErr error
+			decoded, decodeErr = ensureReqBody()
+			if decodeErr != nil {
+				return nil, decodeErr
+			}
+			if compatMessagesBridge {
+				codexResult = applyCodexOAuthTransformWithOptions(decoded, transformOpts)
+				ensureCodexOAuthInstructionsField(decoded)
+				markDecodedModified()
+			} else {
+				codexResult = applyCodexOAuthTransformWithOptions(decoded, transformOpts)
+			}
+			if codexResult.Error != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": codexResult.Error.Error()}})
+				return nil, codexResult.Error
+			}
+			setCodexToolNameReverse(c, codexResult.ToolNameReverse)
+			if codexResult.Modified {
+				markDecodedModified()
+			}
+			// 带真实 device_id 时补齐 client_metadata 安装标识，与真实 Codex 对齐（compact 形态不同，跳过）。
+			if !isCompactRequest && applyCodexClientMetadata(decoded, account) {
+				markDecodedModified()
+			}
+			if currentClientPromptCacheKey, ok := decoded["prompt_cache_key"].(string); ok {
+				clientPromptCacheKey = currentClientPromptCacheKey
+			}
+			// Account namespace is orthogonal to fingerprint convergence: preserve
+			// each client's identity cardinality, but never reuse it across OAuth
+			// credentials after scheduler failover.
+			if !isCompactRequest && applyCodexAccountIdentityClientMetadataMap(decoded, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c)) {
+				markDecodedModified()
+			}
 			if fpIDs != nil {
 				if applyCodexFingerprintClientMetadata(decoded, fpIDs) {
 					markDecodedModified()
 				}
 			}
-			// 将 fpIDs 存入 gin context，供 buildUpstreamRequest 中头改写使用。
-			// 无条件覆写（含 nil）：failover 从收敛账号切到 off 账号时，上一
-			// 账号的 IDs 不得残留（stageCodexFingerprintIDs 注释）。
-			stageCodexFingerprintIDs(c, fpIDs)
+		} else {
+			var rawErr error
+			var changed bool
+			rawChanged := false
+			body, changed, rawErr = applyCodexClientMetadataRaw(body, account)
+			if rawErr != nil {
+				return nil, rawErr
+			}
+			rawChanged = rawChanged || changed
+			body, changed, rawErr = applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
+			if rawErr != nil {
+				return nil, rawErr
+			}
+			rawChanged = rawChanged || changed
+			if fpIDs != nil {
+				body, changed, rawErr = applyCodexFingerprintClientMetadataRaw(body, fpIDs)
+				if rawErr != nil {
+					return nil, rawErr
+				}
+				rawChanged = rawChanged || changed
+			}
+			if rawChanged {
+				requestView = newOpenAIRequestView(body)
+			}
+			if promptCacheKeyValue := gjson.GetBytes(body, "prompt_cache_key"); promptCacheKeyValue.Type == gjson.String {
+				clientPromptCacheKey = promptCacheKeyValue.String()
+			}
+			setCodexToolNameReverse(c, nil)
 		}
+		stageCodexFingerprintIDs(c, fpIDs)
 		if codexResult.NormalizedModel != "" {
 			upstreamModel = codexResult.NormalizedModel
 		}
@@ -686,16 +719,19 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	if account.UsesOpenAICodexProtocol() {
-		decoded, decodeErr := ensureReqBody()
-		if decodeErr != nil {
-			return nil, decodeErr
-		}
-		if input, ok := decoded["input"].([]any); ok && sanitizeOpenAIResponsesOrphanToolOutputs(
-			decoded,
-			input,
-			strings.TrimSpace(firstNonEmptyString(decoded["previous_response_id"])) != "",
-		) {
-			markDecodedModified()
+		if reqBody != nil {
+			if input, ok := reqBody["input"].([]any); ok && sanitizeOpenAIResponsesOrphanToolOutputs(
+				reqBody,
+				input,
+				strings.TrimSpace(firstNonEmptyString(reqBody["previous_response_id"])) != "",
+			) {
+				markDecodedModified()
+			}
+		} else if sanitizedBody, changed, sanitizeErr := sanitizeOpenAIResponsesOrphanToolOutputsRaw(body); sanitizeErr != nil {
+			return nil, sanitizeErr
+		} else if changed {
+			body = sanitizedBody
+			requestView = newOpenAIRequestView(body)
 		}
 	}
 	if reqBody != nil || openAIResponsesInputMayNeedTruncation(body) {
