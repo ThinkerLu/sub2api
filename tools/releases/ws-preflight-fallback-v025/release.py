@@ -75,6 +75,14 @@ def run(args, data=None):
     return p.stdout
 
 
+def run_combined(args, data=None):
+    """Run a command and combine stdout/stderr; only used for identity checks."""
+    p = subprocess.run(args, input=data, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if p.returncode:
+        raise RuntimeError('命令失败: ' + ' '.join(args[:4]))
+    return p.stdout
+
+
 def atomic(path, text):
     path = Path(path)
     tmp = path.with_name(path.name + '.ws-oom.tmp')
@@ -202,7 +210,10 @@ class Release:
                 if config_digest and re.fullmatch(r'sha256:[0-9a-f]{64}', config_digest):
                     allowed_ids.add(config_digest)
             assert info['Id'] in allowed_ids, '镜像 ID 不匹配：实际=' + info['Id'] + '；预期=' + ', '.join(sorted(allowed_ids))
-        version = self.d('run', '--rm', '--pull', 'never', '--network', 'none', '--entrypoint', '/app/sub2api', image, '--version')
+        version = run_combined(self.docker + [
+            'run', '--rm', '--pull', 'never', '--network', 'none',
+            '--entrypoint', '/app/sub2api', image, '--version',
+        ])
         assert commit in version, '程序提交不匹配'
         return info['Id']
 

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import release
@@ -28,6 +29,12 @@ COMPOSE = '''services:
 
 
 class ReleaseHelpersTests(unittest.TestCase):
+    def test_run_combined_includes_stderr_version_output(self):
+        completed = SimpleNamespace(returncode=0, stdout='Sub2API commit abc123\n')
+        with patch.object(release.subprocess, 'run', return_value=completed) as run_mock:
+            self.assertEqual(release.run_combined(['docker', 'run']), 'Sub2API commit abc123\n')
+            self.assertIs(run_mock.call_args.kwargs['stderr'], release.subprocess.STDOUT)
+
     def test_known_additive_migrations_match_runtime_checksum(self):
         migrations = release.HERE.parents[2] / 'backend' / 'migrations'
         if not migrations.is_dir():
