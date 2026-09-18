@@ -1218,7 +1218,7 @@ func (c *UserMessageQueueConfig) GetEffectiveMode() string {
 	return ""
 }
 
-// DefaultOpenAIWSClientFirstMessageTimeoutSeconds preserves the legacy ingress deadline.
+// DefaultOpenAIWSClientFirstMessageTimeoutSeconds is the default first-message inactivity window.
 const DefaultOpenAIWSClientFirstMessageTimeoutSeconds = 30
 
 // GatewayOpenAIWSConfig OpenAI Responses WebSocket 配置。
@@ -1228,8 +1228,9 @@ type GatewayOpenAIWSConfig struct {
 	ModeRouterV2Enabled bool `mapstructure:"mode_router_v2_enabled"`
 	// IngressModeDefault: ingress 默认模式（off/ctx_pool/passthrough/http_bridge/adaptive）
 	IngressModeDefault string `mapstructure:"ingress_mode_default"`
-	// ClientFirstMessageTimeoutSeconds bounds the total time to read and decompress
-	// the first client response.create message after the WebSocket upgrade.
+	// ClientFirstMessageTimeoutSeconds bounds inactivity while reading the first
+	// response.create after upgrade. Incoming transport bytes (including control
+	// frames) renew the window. It is not a total upload duration limit.
 	ClientFirstMessageTimeoutSeconds int `mapstructure:"client_first_message_timeout_seconds"`
 	// IngressInterTurnIdleTimeoutSeconds bounds the time a client may remain idle
 	// between completed ingress turns. Zero disables this protection.

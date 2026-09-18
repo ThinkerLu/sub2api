@@ -14,6 +14,17 @@ type openAIWSClientReadResult struct {
 	err         error
 }
 
+// ReadOpenAIWSClientFirstMessage bounds inactivity while reading the initial
+// response.create. Progress comes from the transport, below frame buffering and
+// decompression, so even an unfinished frame renews the inactivity window.
+func ReadOpenAIWSClientFirstMessage(ctx context.Context, conn *coderws.Conn, timeout time.Duration, progress *OpenAIWSReadProgress) (coderws.MessageType, []byte, error) {
+	if progress != nil {
+		progress.touch()
+		defer progress.stop()
+	}
+	return readOpenAIWSClientMessage(ctx, conn, timeout, coderws.StatusPolicyViolation, "first response.create message idle timeout", nil, nil, progress)
+}
+
 // ReadOpenAIWSClientMessage keeps one reader alive while control events send
 // their close frame, then closes the transport and joins that reader.
 func ReadOpenAIWSClientMessage(
@@ -45,6 +56,19 @@ func readOpenAIWSClientMessageWithTimeoutStart(
 	timeoutReason string,
 	timeoutStart <-chan struct{},
 	timeoutActive func() bool,
+) (coderws.MessageType, []byte, error) {
+	return readOpenAIWSClientMessage(controlCtx, conn, timeout, timeoutStatus, timeoutReason, timeoutStart, timeoutActive, nil)
+}
+
+func readOpenAIWSClientMessage(
+	controlCtx context.Context,
+	conn *coderws.Conn,
+	timeout time.Duration,
+	timeoutStatus coderws.StatusCode,
+	timeoutReason string,
+	timeoutStart <-chan struct{},
+	timeoutActive func() bool,
+	progress *OpenAIWSReadProgress,
 ) (coderws.MessageType, []byte, error) {
 	if conn == nil {
 		return 0, nil, errors.New("openai websocket client connection is nil")
@@ -88,6 +112,9 @@ func readOpenAIWSClientMessageWithTimeoutStart(
 	}()
 
 	closeAndJoin := func(status coderws.StatusCode, reason string, cause error) (coderws.MessageType, []byte, error) {
+		if progress != nil {
+			progress.stop()
+		}
 		_ = conn.Close(status, reason)
 		_ = conn.CloseNow()
 		<-readDone
@@ -101,6 +128,21 @@ func readOpenAIWSClientMessageWithTimeoutStart(
 		case <-timeoutStart:
 			startTimeout()
 		case <-timeoutCh:
+			if progress != nil {
+				// Coalescing progress in an atomic avoids a notification/timer reset for
+				// every chunk and rechecks progress even when the timer fires concurrently.
+				remaining := timeout - progress.IdleDuration()
+				if remaining > 0 {
+					timer.Reset(remaining)
+					continue
+				}
+			}
+			// Prefer a complete read already published at the deadline boundary.
+			select {
+			case result := <-readDone:
+				return result.messageType, result.payload, result.err
+			default:
+			}
 			return closeAndJoin(timeoutStatus, timeoutReason, context.DeadlineExceeded)
 		case <-controlCtx.Done():
 			cause := context.Cause(controlCtx)

@@ -91,7 +91,7 @@ func openAIWSHTTPBridgeToolUpstreamName(account *Account) string {
 	return "OpenAI WS HTTP bridge"
 }
 
-// ResolveOpenAIWSClientFirstMessageTimeout returns the effective client ingress deadline.
+// ResolveOpenAIWSClientFirstMessageTimeout returns the first-message inactivity window.
 func ResolveOpenAIWSClientFirstMessageTimeout(cfg *config.Config) time.Duration {
 	seconds := config.DefaultOpenAIWSClientFirstMessageTimeoutSeconds
 	if cfg != nil && cfg.Gateway.OpenAIWS.ClientFirstMessageTimeoutSeconds > 0 {

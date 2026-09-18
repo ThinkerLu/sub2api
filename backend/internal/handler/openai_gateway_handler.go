@@ -2326,7 +2326,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		h.errorResponse(c, http.StatusServiceUnavailable, "service_unavailable", "Unable to resolve websocket ingress limits")
 		return
 	}
-	wsConn, err := coderws.Accept(c.Writer, c.Request, &coderws.AcceptOptions{
+	wsConn, readProgress, err := service.AcceptOpenAIWSClient(c.Writer, c.Request, &coderws.AcceptOptions{
 		CompressionMode: coderws.CompressionContextTakeover,
 	})
 	if err != nil {
@@ -2351,13 +2351,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	}
 
 	firstMessageTimeout := service.ResolveOpenAIWSClientFirstMessageTimeout(h.cfg)
-	msgType, firstMessage, err := service.ReadOpenAIWSClientMessage(
-		ctx,
-		wsConn,
-		firstMessageTimeout,
-		coderws.StatusPolicyViolation,
-		"missing first response.create message",
-	)
+	msgType, firstMessage, err := service.ReadOpenAIWSClientFirstMessage(ctx, wsConn, firstMessageTimeout, readProgress)
 	if err != nil {
 		if errors.Is(context.Cause(ctx), service.ErrOpenAIWSIngressLeaseLost) {
 			reqLog.Warn("openai.websocket_ingress_lease_lost_before_first_message", zap.Error(err))
@@ -2371,8 +2365,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			zap.String("close_status", closeStatus),
 			zap.String("close_reason", closeReason),
 			zap.Duration("read_timeout", firstMessageTimeout),
+			zap.Int64("received_bytes", readProgress.BytesRead()),
+			zap.Duration("read_idle", readProgress.IdleDuration()),
 		)
-		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "missing first response.create message")
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "first response.create message idle timeout")
 		return
 	}
 	firstTurnStartedAt := time.Now()
