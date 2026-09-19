@@ -28,6 +28,8 @@ for name in (
 ):
     shutil.copy2(HERE / 'image' / name, delivery / name)
 
+shutil.copy2(HERE / 'image' / 'model-registry.example.yaml', delivery / 'model-registry.example.yaml')
+
 manifest.update(
     branch='codex/ws-adaptive-http-bridge',
     rollback_commit='17866c78b682f4cd675404fb4665a868016038c3',
@@ -42,12 +44,13 @@ manifest.update(
 
 for source, name in (
     ('sub2api-ws-turn-metadata-regression.log', 'regression-race.log'),
-    ('sub2api-ws-turn-metadata-linux-service.log', 'linux-amd64-preflight-regression.log'),
     ('sub2api-ws-turn-metadata-release-tests.log', 'release-tests.log'),
 ):
     optional = Path('/tmp') / source
     if optional.is_file():
         shutil.copy2(optional, delivery / name)
+
+shutil.copy2(HERE / 'image' / 'linux-amd64-adaptive-regression.log', delivery / 'linux-amd64-preflight-regression.log')
 
 shutil.copy2(HERE / 'README.md', delivery / 'IMPLEMENTATION.md')
 
