@@ -36,6 +36,24 @@ func OpenAIWSRoutingHintModel(value string) string {
 	return modelValue
 }
 
+// OpenAIWSTurnMetadataModel extracts the model from the Codex turn metadata
+// sent on the WebSocket upgrade request. Codex Desktop does not always send
+// x-codex-routing-hint, but it does include the effective model in this JSON
+// header for both prewarm and turn connections. The body remains authoritative
+// once the first response.create frame arrives; this value is only used for an
+// early capability fallback before upgrading the connection.
+func OpenAIWSTurnMetadataModel(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || !gjson.Valid(value) {
+		return ""
+	}
+	model := strings.TrimSpace(gjson.Get(value, "model").String())
+	if model == "" || strings.ContainsAny(model, "\r\n;=") {
+		return ""
+	}
+	return model
+}
+
 // setOpenAICodexRoutingHint mirrors the Codex backend routing-hint contract for
 // OpenAI OAuth requests. The request model must already be the final upstream
 // slug and serviceTier must already reflect any local policy rewrite/filter.

@@ -1086,20 +1086,40 @@ func TestOpenAIResponsesWebSocket_NoNativeWSModelRouteReturnsUpgradeRequired(t *
 	wsServer := newOpenAIWSHandlerTestServer(t, h, middleware.AuthSubject{UserID: 1, Concurrency: 1})
 	defer wsServer.Close()
 
-	dialCtx, cancelDial := context.WithTimeout(context.Background(), 3*time.Second)
-	clientConn, response, err := coderws.Dial(
-		dialCtx,
-		"ws"+strings.TrimPrefix(wsServer.URL, "http")+"/openai/v1/responses",
-		&coderws.DialOptions{HTTPHeader: http.Header{
-			"X-Codex-Routing-Hint": []string{"model=gpt-http-only"},
-		}},
-	)
-	cancelDial()
-	require.Error(t, err)
-	require.Nil(t, clientConn)
-	require.NotNil(t, response)
-	require.Equal(t, http.StatusUpgradeRequired, response.StatusCode)
-	_ = response.Body.Close()
+	tests := []struct {
+		name   string
+		header string
+		value  string
+	}{
+		{
+			name:   "routing hint header",
+			header: "X-Codex-Routing-Hint",
+			value:  "model=gpt-http-only",
+		},
+		{
+			name:   "turn metadata header",
+			header: "X-Codex-Turn-Metadata",
+			value:  `{"request_kind":"prewarm","model":"gpt-http-only"}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dialCtx, cancelDial := context.WithTimeout(context.Background(), 3*time.Second)
+			clientConn, response, err := coderws.Dial(
+				dialCtx,
+				"ws"+strings.TrimPrefix(wsServer.URL, "http")+"/openai/v1/responses",
+				&coderws.DialOptions{HTTPHeader: http.Header{
+					tt.header: []string{tt.value},
+				}},
+			)
+			cancelDial()
+			require.Error(t, err)
+			require.Nil(t, clientConn)
+			require.NotNil(t, response)
+			require.Equal(t, http.StatusUpgradeRequired, response.StatusCode)
+			_ = response.Body.Close()
+		})
+	}
 }
 
 func TestOpenAIResponsesWebSocket_InvalidUpgradeDoesNotSetTransport(t *testing.T) {

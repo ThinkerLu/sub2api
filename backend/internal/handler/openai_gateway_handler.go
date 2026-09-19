@@ -2339,7 +2339,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 	if h.gatewayService != nil {
-		if hintModel := service.OpenAIWSRoutingHintModel(c.GetHeader("x-codex-routing-hint")); hintModel != "" {
+		hintModel := service.OpenAIWSRoutingHintModel(c.GetHeader("x-codex-routing-hint"))
+		if hintModel == "" {
+			hintModel = service.OpenAIWSTurnMetadataModel(c.GetHeader("x-codex-turn-metadata"))
+		}
+		if hintModel != "" {
 			mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, hintModel)
 			model := openAIChannelForwardModel(mapping, hintModel)
 			available, routeErr := h.gatewayService.OpenAIWSModelRouteAvailable(

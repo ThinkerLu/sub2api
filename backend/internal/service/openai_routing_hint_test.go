@@ -81,6 +81,15 @@ func TestOpenAIWSRoutingHintModel(t *testing.T) {
 	require.Empty(t, OpenAIWSRoutingHintModel("model=gpt-5.6;model=spoof"))
 }
 
+func TestOpenAIWSTurnMetadataModel(t *testing.T) {
+	require.Equal(t, "deepseek-flash", OpenAIWSTurnMetadataModel(`{"request_kind":"prewarm","model":"deepseek-flash"}`))
+	require.Equal(t, "gpt-5.6-codex", OpenAIWSTurnMetadataModel(`{"request_kind":"turn","model":" gpt-5.6-codex "}`))
+	require.Empty(t, OpenAIWSTurnMetadataModel(`{"request_kind":"turn"}`))
+	require.Empty(t, OpenAIWSTurnMetadataModel(`{not json}`))
+	require.Empty(t, OpenAIWSTurnMetadataModel(`{"model":""}`))
+	require.Empty(t, OpenAIWSTurnMetadataModel("{\"model\":\"gpt-5.6\ninvalid\"}"))
+}
+
 func TestOpenAIOAuthHTTPBuildersSendRoutingHintFromFinalBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	oauthAccount := &Account{
