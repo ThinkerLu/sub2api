@@ -41,6 +41,27 @@
           </div>
         </div>
 
+        <!-- Session ID Filter -->
+        <div class="relative w-full sm:w-auto sm:min-w-[240px]">
+          <label class="input-label">{{ t('admin.usage.sessionIdFilter') }}</label>
+          <input
+            v-model.trim="filters.session_id"
+            type="text"
+            class="input pr-8 font-mono"
+            :placeholder="t('admin.usage.sessionIdPlaceholder')"
+            @input="debounceSessionFilter"
+          />
+          <button
+            v-if="filters.session_id"
+            type="button"
+            @click="clearSessionFilter"
+            class="absolute right-2 top-9 text-gray-400"
+            :aria-label="t('admin.usage.clearSessionIdFilter')"
+          >
+            ✕
+          </button>
+        </div>
+
         <!-- API Key Search -->
         <div ref="apiKeySearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[240px]">
           <label class="input-label">{{ t('usage.apiKeyFilter') }}</label>
@@ -264,6 +285,28 @@ const accountKeyword = ref('')
 const accountResults = ref<SimpleAccount[]>([])
 const showAccountDropdown = ref(false)
 let accountSearchTimeout: ReturnType<typeof setTimeout> | null = null
+let sessionFilterTimeout: ReturnType<typeof setTimeout> | null = null
+
+const clearPendingSessionFilter = () => {
+  if (sessionFilterTimeout) {
+    clearTimeout(sessionFilterTimeout)
+    sessionFilterTimeout = null
+  }
+}
+
+const debounceSessionFilter = () => {
+  clearPendingSessionFilter()
+  sessionFilterTimeout = setTimeout(() => {
+    sessionFilterTimeout = null
+    emitChange()
+  }, 350)
+}
+
+const clearSessionFilter = () => {
+  clearPendingSessionFilter()
+  filters.value.session_id = undefined
+  emitChange()
+}
 
 const modelOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('admin.usage.allModels') },
@@ -504,6 +547,13 @@ watch(
 )
 
 watch(
+  () => filters.value.session_id,
+  (sessionId) => {
+    if (!sessionId) clearPendingSessionFilter()
+  }
+)
+
+watch(
   () => filters.value.api_key_id,
   (apiKeyId) => {
     if (!apiKeyId) {
@@ -535,6 +585,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   clearPendingUserSearch()
+  clearPendingSessionFilter()
   document.removeEventListener('click', onDocumentClick)
 })
 

@@ -760,6 +760,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 			if bridgeErr != nil && isOpenAIWSSessionPreempted(ctx) {
 				return errOpenAIWSSessionPreempted
 			}
+			if result != nil {
+				result.Traffic.IngressBodyBytes = int64(len(currentBridgePayload.rawForHash))
+			}
 			if hooks != nil && hooks.AfterTurn != nil {
 				hooks.AfterTurn(turn, result, bridgeErr)
 			}
@@ -1027,11 +1030,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 	}
 
 	var rejectedFieldRetryState *openAIResponsesRejectedFieldRetryState
-	sendAndRelay := func(turn int, lease *openAIWSConnLease, payload []byte, payloadBytes int, originalModel string, imageBillingModel string, imageSizeTier string, imageInputSize string, requestedReasoningEffort *string) (*OpenAIForwardResult, error) {
+	sendAndRelay := func(turn int, lease *openAIWSConnLease, payload []byte, payloadBytes int, ingressBodyBytes int, originalModel string, imageBillingModel string, imageSizeTier string, imageInputSize string, requestedReasoningEffort *string) (*OpenAIForwardResult, error) {
 		responseModelObserver := &upstreamResponseModelObserver{}
 		if lease == nil {
 			return nil, errors.New("upstream websocket lease is nil")
 		}
+		traffic := NewUsageTrafficCounter()
+		traffic.AddIngressBodyBytes(ingressBodyBytes)
 		turnStart := time.Now()
 		wroteDownstream := false
 		if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(payload), s.openAIWSWriteTimeout()); err != nil {
@@ -1041,6 +1046,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 				false,
 			)
 		}
+		traffic.AddUpstreamRequestBodyBytes(payloadBytes)
 		if debugEnabled {
 			logOpenAIWSModeDebug(
 				"ingress_ws_turn_request_sent account_id=%d turn=%d conn_id=%s payload_bytes=%d",
@@ -1091,6 +1097,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 					wroteDownstream,
 				)
 			}
+			traffic.AddUpstreamResponseBodyBytes(len(upstreamMessage))
 			if normalized, changed := normalizeCompletedImageGenerationStatus(upstreamMessage); changed {
 				upstreamMessage = normalized
 			}
@@ -1276,6 +1283,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 						)
 					}
 				} else {
+					traffic.AddEgressBodyBytes(len(clientMessage))
 					wroteDownstream = true
 					markOpenAIWSClientVisibleFailure(c, eventType, upstreamMessage)
 				}
@@ -1325,6 +1333,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 					ResponseHeaders:               lease.HandshakeHeaders(),
 					Duration:                      time.Since(turnStart),
 					FirstTokenMs:                  firstTokenMs,
+					Traffic:                       traffic.Snapshot(),
 				}
 				if replayInput := replayCollector.Items(); len(replayInput) > 0 {
 					result.wsReplayInput = replayInput
@@ -1343,6 +1352,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 	}
 
 	currentPayload := firstPayload.payloadRaw
+	currentIngressBytes := len(firstPayload.rawForHash)
 	currentOriginalModel := firstPayload.originalModel
 	currentImageBillingModel := firstPayload.imageBillingModel
 	currentImageSizeTier := firstPayload.imageSizeTier
@@ -1851,7 +1861,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 			)
 		}
 
-		result, relayErr := sendAndRelay(turn, sessionLease, currentPayload, currentPayloadBytes, currentOriginalModel, currentImageBillingModel, currentImageSizeTier, currentImageInputSize, currentRequestedReasoningEffort)
+		result, relayErr := sendAndRelay(turn, sessionLease, currentPayload, currentPayloadBytes, currentIngressBytes, currentOriginalModel, currentImageBillingModel, currentImageSizeTier, currentImageInputSize, currentRequestedReasoningEffort)
 		if relayErr != nil {
 			lastTurnClean = false
 			if isOpenAIWSSessionPreempted(ctx) {
@@ -2012,6 +2022,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 			}
 		}
 		currentPayload = nextPayload.payloadRaw
+		currentIngressBytes = len(nextPayload.rawForHash)
 		currentOriginalModel = nextPayload.originalModel
 		currentImageBillingModel = nextPayload.imageBillingModel
 		currentImageSizeTier = nextPayload.imageSizeTier

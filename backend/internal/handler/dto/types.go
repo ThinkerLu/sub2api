@@ -655,6 +655,11 @@ type UsageLog struct {
 	// SessionID is the explicit client-provided request correlation identifier
 	// (e.g. the session_id / X-Session-Id headers). Omitted when absent.
 	SessionID *string `json:"session_id,omitempty"`
+	// Application-layer body traffic, excluding transport overhead.
+	IngressBodyBytes          int64 `json:"ingress_body_bytes"`
+	UpstreamRequestBodyBytes  int64 `json:"upstream_request_body_bytes"`
+	UpstreamResponseBodyBytes int64 `json:"upstream_response_body_bytes"`
+	EgressBodyBytes           int64 `json:"egress_body_bytes"`
 
 	// Cache TTL Override 标记
 	CacheTTLOverridden bool `json:"cache_ttl_overridden"`

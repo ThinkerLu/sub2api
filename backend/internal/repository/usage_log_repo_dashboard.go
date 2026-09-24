@@ -203,7 +203,11 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(SUM(account_cost), 0) as total_account_cost,
-			COALESCE(SUM(total_duration_ms), 0) as total_duration_ms
+			COALESCE(SUM(total_duration_ms), 0) as total_duration_ms,
+			COALESCE(SUM(ingress_body_bytes), 0) as total_ingress_body_bytes,
+			COALESCE(SUM(upstream_request_body_bytes), 0) as total_upstream_request_body_bytes,
+			COALESCE(SUM(upstream_response_body_bytes), 0) as total_upstream_response_body_bytes,
+			COALESCE(SUM(egress_body_bytes), 0) as total_egress_body_bytes
 		FROM usage_dashboard_daily
 	`
 	var totalDurationMs int64
@@ -221,6 +225,10 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 		&stats.TotalActualCost,
 		&stats.TotalAccountCost,
 		&totalDurationMs,
+		&stats.TotalIngressBodyBytes,
+		&stats.TotalUpstreamRequestBodyBytes,
+		&stats.TotalUpstreamResponseBodyBytes,
+		&stats.TotalEgressBodyBytes,
 	); err != nil {
 		return err
 	}
@@ -239,7 +247,11 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 			total_cost as today_cost,
 			actual_cost as today_actual_cost,
 			account_cost as today_account_cost,
-			active_users as active_users
+			active_users as active_users,
+			ingress_body_bytes as today_ingress_body_bytes,
+			upstream_request_body_bytes as today_upstream_request_body_bytes,
+			upstream_response_body_bytes as today_upstream_response_body_bytes,
+			egress_body_bytes as today_egress_body_bytes
 		FROM usage_dashboard_daily
 		WHERE bucket_date = $1::date
 	`
@@ -257,6 +269,10 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 		&stats.TodayActualCost,
 		&stats.TodayAccountCost,
 		&stats.ActiveUsers,
+		&stats.TodayIngressBodyBytes,
+		&stats.TodayUpstreamRequestBodyBytes,
+		&stats.TodayUpstreamResponseBodyBytes,
+		&stats.TodayEgressBodyBytes,
 	); err != nil {
 		if err != sql.ErrNoRows {
 			return err
@@ -292,7 +308,11 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 				total_cost,
 				actual_cost,
 				COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) AS account_cost,
-				COALESCE(duration_ms, 0) AS duration_ms
+				COALESCE(duration_ms, 0) AS duration_ms,
+				ingress_body_bytes,
+				upstream_request_body_bytes,
+				upstream_response_body_bytes,
+				egress_body_bytes
 			FROM usage_logs
 			WHERE created_at >= LEAST($1::timestamptz, $3::timestamptz)
 				AND created_at < GREATEST($2::timestamptz, $4::timestamptz)
@@ -307,6 +327,10 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_actual_cost,
 			COALESCE(SUM(account_cost) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_account_cost,
 			COALESCE(SUM(duration_ms) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_duration_ms,
+			COALESCE(SUM(ingress_body_bytes) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_ingress_body_bytes,
+			COALESCE(SUM(upstream_request_body_bytes) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_upstream_request_body_bytes,
+			COALESCE(SUM(upstream_response_body_bytes) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_upstream_response_body_bytes,
+			COALESCE(SUM(egress_body_bytes) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_egress_body_bytes,
 			COUNT(*) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz) AS today_requests,
 			COALESCE(SUM(input_tokens) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_input_tokens,
 			COALESCE(SUM(output_tokens) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_output_tokens,
@@ -314,7 +338,11 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 			COALESCE(SUM(cache_read_tokens) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_cache_read_tokens,
 			COALESCE(SUM(total_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_cost,
 			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_actual_cost,
-			COALESCE(SUM(account_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_account_cost
+			COALESCE(SUM(account_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_account_cost,
+			COALESCE(SUM(ingress_body_bytes) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_ingress_body_bytes,
+			COALESCE(SUM(upstream_request_body_bytes) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_upstream_request_body_bytes,
+			COALESCE(SUM(upstream_response_body_bytes) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_upstream_response_body_bytes,
+			COALESCE(SUM(egress_body_bytes) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_egress_body_bytes
 		FROM scoped
 	`
 	var totalDurationMs int64
@@ -332,6 +360,10 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 		&stats.TotalActualCost,
 		&stats.TotalAccountCost,
 		&totalDurationMs,
+		&stats.TotalIngressBodyBytes,
+		&stats.TotalUpstreamRequestBodyBytes,
+		&stats.TotalUpstreamResponseBodyBytes,
+		&stats.TotalEgressBodyBytes,
 		&stats.TodayRequests,
 		&stats.TodayInputTokens,
 		&stats.TodayOutputTokens,
@@ -340,6 +372,10 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 		&stats.TodayCost,
 		&stats.TodayActualCost,
 		&stats.TodayAccountCost,
+		&stats.TodayIngressBodyBytes,
+		&stats.TodayUpstreamRequestBodyBytes,
+		&stats.TodayUpstreamResponseBodyBytes,
+		&stats.TodayEgressBodyBytes,
 	); err != nil {
 		return err
 	}

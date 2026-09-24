@@ -299,12 +299,14 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 // doUpstreamRequest owns cancellation for one attempt, without cancelling the
 // caller's context (which may be detached for billing or reused for retries).
 func doUpstreamRequest(client *http.Client, req *http.Request) (*http.Response, error) {
+	trackUsageTrafficRequest(req)
 	ctx, cancel := context.WithCancel(req.Context())
 	resp, err := servertiming.Do(client, req.WithContext(ctx))
 	if err != nil {
 		cancel()
 		return resp, err
 	}
+	trackUsageTrafficResponse(resp)
 	decompressResponseBody(resp)
 	resp.Body = &cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancel}
 	return resp, nil
@@ -1519,6 +1521,28 @@ func wrapTrackedBody(body io.ReadCloser, onClose func()) io.ReadCloser {
 		return body
 	}
 	return &trackedBody{ReadCloser: body, onClose: onClose}
+}
+
+func trackUsageTrafficRequest(req *http.Request) {
+	if req == nil || req.Body == nil {
+		return
+	}
+	counter := service.UsageTrafficCounterFromContext(req.Context())
+	if counter == nil {
+		return
+	}
+	req.Body = service.WrapUsageTrafficReadCloser(req.Body, counter.AddUpstreamRequestBodyBytes)
+}
+
+func trackUsageTrafficResponse(resp *http.Response) {
+	if resp == nil || resp.Body == nil {
+		return
+	}
+	counter := service.UsageTrafficCounterFromContext(resp.Request.Context())
+	if counter == nil {
+		return
+	}
+	resp.Body = service.WrapUsageTrafficReadCloser(resp.Body, counter.AddUpstreamResponseBodyBytes)
 }
 
 // decompressResponseBody 根据 Content-Encoding 解压响应体。

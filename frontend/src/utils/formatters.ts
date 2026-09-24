@@ -15,3 +15,18 @@ export function formatMultiplier(val: number): string {
   if (val < 0.0001) return val.toPrecision(2)
   return val.toFixed(4).replace(/(\.\d{2}\d*?)0+$/, '$1')
 }
+
+/** Format byte counts with progressive binary units (B -> KB -> MB -> GB -> TB). */
+export function formatBytes(bytes: number | null | undefined): string {
+  const value = Number(bytes ?? 0)
+  if (!Number.isFinite(value) || value <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let scaled = value
+  let unitIndex = 0
+  while (scaled >= 1024 && unitIndex < units.length - 1) {
+    scaled /= 1024
+    unitIndex++
+  }
+  const decimals = unitIndex === 0 ? 0 : scaled >= 100 ? 1 : 2
+  return `${scaled.toFixed(decimals).replace(/\.0+$|(\.\d*[1-9])0+$/, '$1')} ${units[unitIndex]}`
+}

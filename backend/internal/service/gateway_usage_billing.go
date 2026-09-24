@@ -1218,6 +1218,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		ImageOutputSize:          optionalTrimmedStringPtr(result.ImageOutputSize),
 		ImageSizeSource:          optionalTrimmedStringPtr(result.ImageSizeSource),
 		ImageSizeBreakdown:       result.ImageSizeBreakdown,
+		UsageTraffic:             ResolveUsageTraffic(ctx, result.Traffic),
 		CacheTTLOverridden:       cacheTTLOverridden,
 		ChannelID:                optionalInt64Ptr(input.ChannelID),
 		ModelMappingChain:        optionalTrimmedStringPtr(input.ModelMappingChain),

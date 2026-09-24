@@ -468,6 +468,16 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	if writeClientMessage == nil {
 		return nil, errors.New("client websocket writer is nil")
 	}
+	traffic := NewUsageTrafficCounter()
+	ctx = WithUsageTrafficCounter(ctx, traffic)
+	writeClientMessageWithTraffic := writeClientMessage
+	writeClientMessage = func(message []byte) error {
+		err := writeClientMessageWithTraffic(message)
+		if err == nil {
+			traffic.AddEgressBodyBytes(len(message))
+		}
+		return err
+	}
 	responseModelObserver := &upstreamResponseModelObserver{}
 
 	body, err := prepareOpenAIWSHTTPBridgeBody(account, payload)
@@ -718,6 +728,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			ResponseHeaders:               cloneHeader(resp.Header),
 			Duration:                      time.Since(turnStart),
 			FirstTokenMs:                  firstTokenMs,
+			Traffic:                       traffic.Snapshot(),
 		}
 		if replayInput := replayCollector.Items(); len(replayInput) > 0 {
 			result.wsReplayInput = replayInput

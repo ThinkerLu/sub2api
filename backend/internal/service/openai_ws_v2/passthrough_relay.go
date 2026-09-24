@@ -625,7 +625,6 @@ func runUpstreamToClient(
 				openAIWSRelayDiscardActiveTurnTiming(state)
 			}
 		}
-		emitTurnComplete(onTurnComplete, state, observedEvent)
 		if dropDownstreamWrites != nil && dropDownstreamWrites.Load() {
 			if droppedFrames != nil {
 				droppedFrames.Add(1)
@@ -638,6 +637,7 @@ func runUpstreamToClient(
 				WroteDownstream: wroteDownstream,
 			})
 			if observedEvent.terminal {
+				emitTurnComplete(onTurnComplete, state, observedEvent)
 				exitCh <- relayExitSignal{
 					stage:           "drain_terminal",
 					graceful:        true,
@@ -664,6 +664,7 @@ func runUpstreamToClient(
 				WroteDownstream: wroteDownstream,
 				Error:           writeErr.Error(),
 			})
+			emitTurnComplete(onTurnComplete, state, observedEvent)
 			exitCh <- relayExitSignal{stage: "write_client", err: writeErr, wroteDownstream: wroteDownstream}
 			return
 		}
@@ -674,6 +675,7 @@ func runUpstreamToClient(
 		if afterWriteClient != nil {
 			afterWriteClient(msgType, payload)
 		}
+		emitTurnComplete(onTurnComplete, state, observedEvent)
 		if forwardedFrames != nil {
 			forwardedFrames.Add(1)
 		}

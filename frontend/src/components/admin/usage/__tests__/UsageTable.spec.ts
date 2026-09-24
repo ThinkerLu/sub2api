@@ -63,6 +63,7 @@ const messages: Record<string, string> = {
   'admin.usage.billingModeImage': 'Image',
 	'admin.usage.requestIdCopied': 'Request ID copied',
 	'admin.usage.upstreamRequestIdCopied': 'Upstream ID copied',
+	'admin.usage.sessionIdCopied': 'Session ID copied',
 	'keys.copied': 'Copied',
 	'keys.copyToClipboard': 'Copy to clipboard',
 	'common.copyFailed': 'Copy failed',
@@ -71,6 +72,10 @@ const messages: Record<string, string> = {
 	'usage.upstreamResponseModel': 'Upstream response',
 	'usage.modelVariant': 'Possible version variant',
 	'usage.modelMismatch': 'Different model',
+	'usage.trafficIngress': 'Client upload',
+	'usage.trafficUpstreamRequest': 'Sent upstream',
+	'usage.trafficUpstreamResponse': 'Upstream response',
+	'usage.trafficEgress': 'Returned to client',
 }
 
 vi.mock('vue-i18n', async () => {
@@ -92,9 +97,11 @@ const DataTableStub = {
         <slot name="cell-reasoning_effort" :row="row" :value="row.reasoning_effort" />
         <slot name="cell-billing_mode" :row="row" />
         <slot name="cell-tokens" :row="row" />
+        <slot name="cell-traffic" :row="row" />
         <slot name="cell-cost" :row="row" />
         <slot name="cell-request_id" :row="row" />
         <slot name="cell-upstream_request_id" :row="row" />
+        <slot name="cell-session_id" :row="row" />
       </div>
     </div>
   `,
@@ -126,6 +133,11 @@ const baseImageRow = {
   image_output_size: null,
   image_size_source: null,
   image_size_breakdown: null,
+  ingress_body_bytes: 1024,
+  upstream_request_body_bytes: 1536,
+  upstream_response_body_bytes: 1024 * 1024,
+  egress_body_bytes: 1024 * 1024 + 512 * 1024,
+  session_id: 'session-123',
 }
 
 describe('admin UsageTable tooltip', () => {
@@ -173,6 +185,30 @@ describe('admin UsageTable tooltip', () => {
 
     expect(wrapper.findAll('[data-testid="long-context-billing-marker"]')).toHaveLength(1)
     expect(wrapper.get('[data-testid="long-context-billing-marker"]').text()).toBe('x2')
+  })
+
+  it('renders four traffic values and the session ID', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [baseImageRow],
+        loading: false,
+        columns: [],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('1 KB')
+    expect(wrapper.text()).toContain('1.5 KB')
+    expect(wrapper.text()).toContain('1 MB')
+    expect(wrapper.text()).toContain('1.5 MB')
+    expect(wrapper.text()).toContain('session-123')
   })
 
   it('keeps the request type badge and adds a separate badge only for native compaction rows', () => {
@@ -644,7 +680,7 @@ describe('admin UsageTable request ID column', () => {
 
     const wrapper = mount(UsageTable, {
       props: {
-        data: [{ ...baseImageRow, request_id: '', upstream_request_id: '20260903082826779695' }],
+        data: [{ ...baseImageRow, request_id: '', upstream_request_id: '20260903082826779695', session_id: null }],
         loading: false,
         columns: [{ key: 'upstream_request_id', label: 'Upstream ID' }],
       },

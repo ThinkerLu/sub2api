@@ -295,6 +295,8 @@ type OpenAIForwardResult struct {
 	SearchCount int
 	// AudioUsage carries Voice billing units when present.
 	AudioUsage *AudioUsage
+	// Traffic stores application-layer body bytes for this request or WS turn.
+	Traffic UsageTraffic
 
 	wsReplayInput                []json.RawMessage
 	wsReplayInputExists          bool

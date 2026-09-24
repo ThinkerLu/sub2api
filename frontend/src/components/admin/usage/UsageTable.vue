@@ -205,6 +205,27 @@
           </div>
         </template>
 
+        <template #cell-traffic="{ row }">
+          <div class="grid grid-cols-[max-content_max-content] gap-x-3 gap-y-1 text-xs tabular-nums">
+            <span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400" :title="t('usage.trafficIngress')">
+              <Icon name="arrowDown" size="sm" class="h-3.5 w-3.5" />
+              {{ formatBytes(row.ingress_body_bytes) }}
+            </span>
+            <span class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400" :title="t('usage.trafficUpstreamRequest')">
+              <Icon name="arrowUp" size="sm" class="h-3.5 w-3.5" />
+              {{ formatBytes(row.upstream_request_body_bytes) }}
+            </span>
+            <span class="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400" :title="t('usage.trafficUpstreamResponse')">
+              <Icon name="arrowDown" size="sm" class="h-3.5 w-3.5" />
+              {{ formatBytes(row.upstream_response_body_bytes) }}
+            </span>
+            <span class="inline-flex items-center gap-1 text-violet-600 dark:text-violet-400" :title="t('usage.trafficEgress')">
+              <Icon name="arrowUp" size="sm" class="h-3.5 w-3.5" />
+              {{ formatBytes(row.egress_body_bytes) }}
+            </span>
+          </div>
+        </template>
+
         <template #cell-cost="{ row }">
           <div class="text-sm">
             <div class="flex items-center gap-1.5">
@@ -286,6 +307,24 @@
               @click="copyUpstreamRequestId(row.upstream_request_id)"
             >
               <Icon :name="copiedRequestId === row.upstream_request_id ? 'check' : 'copy'" size="sm" class="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
+        </template>
+
+        <template #cell-session_id="{ row }">
+          <div v-if="row.session_id" class="flex max-w-[180px] items-center gap-1.5">
+            <span class="truncate font-mono text-xs text-gray-500 dark:text-gray-400" :title="row.session_id">
+              {{ row.session_id }}
+            </span>
+            <button
+              type="button"
+              class="shrink-0 rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700 dark:hover:text-gray-300"
+              :class="copiedRequestId === row.session_id ? 'text-green-500 hover:text-green-500' : ''"
+              :title="copiedRequestId === row.session_id ? t('keys.copied') : t('keys.copyToClipboard')"
+              @click="copySessionId(row.session_id)"
+            >
+              <Icon :name="copiedRequestId === row.session_id ? 'check' : 'copy'" size="sm" class="h-3.5 w-3.5" />
             </button>
           </div>
           <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
@@ -536,7 +575,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { formatDateTime, formatReasoningEffort, reasoningEffortValuesEqual } from '@/utils/format'
-import { formatCacheTokens, formatMultiplier } from '@/utils/formatters'
+import { formatBytes, formatCacheTokens, formatMultiplier } from '@/utils/formatters'
 import { formatTokenPricePerMillion } from '@/utils/usagePricing'
 import { getUsageServiceTierLabel } from '@/utils/usageServiceTier'
 import { resolveUsageRequestType } from '@/utils/usageRequestType'
@@ -687,6 +726,7 @@ const copyIdentifier = async (value: string, copiedMessage: string) => {
 const copyRequestId = (requestId: string) => copyIdentifier(requestId, t('admin.usage.requestIdCopied'))
 const copyUpstreamRequestId = (upstreamRequestId: string) =>
   copyIdentifier(upstreamRequestId, t('admin.usage.upstreamRequestIdCopied'))
+const copySessionId = (sessionId: string) => copyIdentifier(sessionId, t('admin.usage.sessionIdCopied'))
 
 // Tooltip state - cost
 const tooltipVisible = ref(false)

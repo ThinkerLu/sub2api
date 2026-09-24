@@ -80,6 +80,14 @@ const createDashboardStats = (): DashboardStats => ({
   today_tokens: 0,
   today_cost: 0,
   today_actual_cost: 0,
+  total_ingress_body_bytes: 0,
+  total_upstream_request_body_bytes: 0,
+  total_upstream_response_body_bytes: 0,
+  total_egress_body_bytes: 0,
+  today_ingress_body_bytes: 0,
+  today_upstream_request_body_bytes: 0,
+  today_upstream_response_body_bytes: 0,
+  today_egress_body_bytes: 0,
   average_duration_ms: 0,
   uptime: 0,
   rpm: 0,
@@ -142,5 +150,41 @@ describe('admin DashboardView', () => {
       end_date: formatLocalDate(now),
       granularity: 'hour'
     }))
+  })
+
+  it('renders the four application traffic totals and today values', async () => {
+    const trafficStats = {
+      ...createDashboardStats(),
+      total_ingress_body_bytes: 1024,
+      total_upstream_request_body_bytes: 2048,
+      total_upstream_response_body_bytes: 3 * 1024 * 1024,
+      total_egress_body_bytes: 4 * 1024 * 1024,
+      today_ingress_body_bytes: 512,
+      today_upstream_request_body_bytes: 1024,
+      today_upstream_response_body_bytes: 2 * 1024 * 1024,
+      today_egress_body_bytes: 1024 * 1024,
+    }
+    getSnapshotV2.mockResolvedValueOnce({ stats: trafficStats, trend: [], models: [] })
+
+    const wrapper = mount(DashboardView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          LoadingSpinner: true,
+          Icon: true,
+          DateRangePicker: true,
+          Select: true,
+          ModelDistributionChart: true,
+          TokenUsageTrend: true,
+          Line: true
+        }
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('1 KB')
+    expect(wrapper.text()).toContain('2 KB')
+    expect(wrapper.text()).toContain('3 MB')
+    expect(wrapper.text()).toContain('4 MB')
   })
 })

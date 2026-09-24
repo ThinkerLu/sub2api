@@ -1790,6 +1790,13 @@ export interface UsageLog {
   // User-Agent
   user_agent: string | null
   ip_address?: string | null
+  session_id?: string | null
+
+  // Application-layer request/response body traffic.
+  ingress_body_bytes: number
+  upstream_request_body_bytes: number
+  upstream_response_body_bytes: number
+  egress_body_bytes: number
 
   // Cache TTL Override
   cache_ttl_overridden: boolean
@@ -1946,6 +1953,16 @@ export interface DashboardStats {
   today_cost: number // 今日标准计费
   today_actual_cost: number // 今日实际扣除
   today_account_cost: number // 今日账号成本
+
+  // Application-layer body traffic totals.
+  total_ingress_body_bytes: number
+  total_upstream_request_body_bytes: number
+  total_upstream_response_body_bytes: number
+  total_egress_body_bytes: number
+  today_ingress_body_bytes: number
+  today_upstream_request_body_bytes: number
+  today_upstream_response_body_bytes: number
+  today_egress_body_bytes: number
 
   // 系统运行统计
   average_duration_ms: number // 平均响应时间
@@ -2203,6 +2220,7 @@ export interface UsageQueryParams {
   account_id?: number
   group_id?: number
   model?: string
+  session_id?: string
   request_type?: UsageRequestType
   stream?: boolean
   native_compaction_v2?: boolean | null

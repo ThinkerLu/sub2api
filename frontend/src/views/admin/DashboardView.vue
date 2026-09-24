@@ -216,6 +216,55 @@
           </div>
         </div>
 
+        <!-- Application Traffic -->
+        <div class="card p-4">
+          <div class="mb-3 flex items-center justify-between gap-4">
+            <div class="flex items-center gap-2">
+              <Icon name="chart" size="sm" class="text-cyan-600 dark:text-cyan-400" />
+              <h2 class="text-sm font-semibold text-gray-900 dark:text-white">
+                {{ t('admin.dashboard.traffic') }}
+              </h2>
+            </div>
+            <span class="text-xs text-gray-400 dark:text-gray-500">
+              {{ t('admin.dashboard.trafficTotal') }} / {{ t('admin.dashboard.trafficToday') }}
+            </span>
+          </div>
+          <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div class="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-900/15">
+              <div class="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+                <Icon name="arrowDown" size="sm" class="h-3.5 w-3.5" />
+                {{ t('admin.dashboard.trafficIngress') }}
+              </div>
+              <p class="mt-1 text-lg font-bold tabular-nums text-gray-900 dark:text-white">{{ formatBytes(stats.total_ingress_body_bytes) }}</p>
+              <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.dashboard.trafficToday') }} {{ formatBytes(stats.today_ingress_body_bytes) }}</p>
+            </div>
+            <div class="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/15">
+              <div class="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+                <Icon name="arrowUp" size="sm" class="h-3.5 w-3.5" />
+                {{ t('admin.dashboard.trafficUpstreamRequest') }}
+              </div>
+              <p class="mt-1 text-lg font-bold tabular-nums text-gray-900 dark:text-white">{{ formatBytes(stats.total_upstream_request_body_bytes) }}</p>
+              <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.dashboard.trafficToday') }} {{ formatBytes(stats.today_upstream_request_body_bytes) }}</p>
+            </div>
+            <div class="rounded-lg bg-sky-50 p-3 dark:bg-sky-900/15">
+              <div class="flex items-center gap-1.5 text-xs text-sky-700 dark:text-sky-400">
+                <Icon name="arrowDown" size="sm" class="h-3.5 w-3.5" />
+                {{ t('admin.dashboard.trafficUpstreamResponse') }}
+              </div>
+              <p class="mt-1 text-lg font-bold tabular-nums text-gray-900 dark:text-white">{{ formatBytes(stats.total_upstream_response_body_bytes) }}</p>
+              <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.dashboard.trafficToday') }} {{ formatBytes(stats.today_upstream_response_body_bytes) }}</p>
+            </div>
+            <div class="rounded-lg bg-violet-50 p-3 dark:bg-violet-900/15">
+              <div class="flex items-center gap-1.5 text-xs text-violet-700 dark:text-violet-400">
+                <Icon name="arrowUp" size="sm" class="h-3.5 w-3.5" />
+                {{ t('admin.dashboard.trafficEgress') }}
+              </div>
+              <p class="mt-1 text-lg font-bold tabular-nums text-gray-900 dark:text-white">{{ formatBytes(stats.total_egress_body_bytes) }}</p>
+              <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.dashboard.trafficToday') }} {{ formatBytes(stats.today_egress_body_bytes) }}</p>
+            </div>
+          </div>
+        </div>
+
         <!-- Quick Actions -->
         <div class="card p-4">
           <div class="mb-3 flex items-center justify-between">
@@ -363,6 +412,7 @@ import Select from '@/components/common/Select.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
 import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
+import { formatBytes } from '@/utils/formatters'
 
 import {
   Chart as ChartJS,

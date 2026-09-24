@@ -8,6 +8,9 @@ const messages: Record<string, string> = {
   'admin.usage.userDeletedBadge': 'deleted',
   'admin.usage.userFilter': 'User',
   'admin.usage.searchUserPlaceholder': 'Search user...',
+  'admin.usage.sessionIdFilter': 'Session ID',
+  'admin.usage.sessionIdPlaceholder': 'Enter session ID',
+  'admin.usage.clearSessionIdFilter': 'Clear session ID',
   'usage.apiKeyFilter': 'API Key',
   'admin.usage.searchApiKeyPlaceholder': 'Search API key...',
   'usage.model': 'Model',
@@ -76,6 +79,7 @@ vi.mock('@/api/admin', () => ({
 // Default props helper
 const defaultFilters = () => ({
   user_id: undefined,
+  session_id: undefined,
   api_key_id: undefined,
   account_id: undefined,
   model: null,
@@ -232,6 +236,34 @@ describe('UsageFilters — user search dropdown', () => {
     pendingSearch.resolve([{ id: 3, email: 'stale@test.com', deleted: false }])
     await flushPromises()
     expect(wrapper.text()).not.toContain('stale@test.com')
+  })
+})
+
+describe('UsageFilters — session ID', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('applies the exact session ID after debounce and clears it', async () => {
+    const filters = defaultFilters()
+    const wrapper = mountFilters(filters)
+    const sessionInput = wrapper.findAll('input[type="text"]')[1]
+
+    await sessionInput.setValue('01a0d171-session')
+    await sessionInput.trigger('input')
+    vi.advanceTimersByTime(350)
+    await flushPromises()
+
+    expect(filters.session_id).toBe('01a0d171-session')
+    expect(wrapper.emitted('change')?.length).toBe(1)
+
+    await wrapper.find('button[aria-label="Clear session ID"]').trigger('click')
+    expect(filters.session_id).toBeUndefined()
+    expect(wrapper.emitted('change')?.length).toBe(2)
   })
 })
 

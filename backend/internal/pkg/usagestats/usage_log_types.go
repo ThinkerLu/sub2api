@@ -71,6 +71,18 @@ type DashboardStats struct {
 	TodayActualCost          float64 `json:"today_actual_cost"`  // 今日实际扣除
 	TodayAccountCost         float64 `json:"today_account_cost"` // 今日账号成本
 
+	// 累计应用层正文字节（不含 TCP/TLS/HTTP/WS 协议开销）
+	TotalIngressBodyBytes          int64 `json:"total_ingress_body_bytes"`
+	TotalUpstreamRequestBodyBytes  int64 `json:"total_upstream_request_body_bytes"`
+	TotalUpstreamResponseBodyBytes int64 `json:"total_upstream_response_body_bytes"`
+	TotalEgressBodyBytes           int64 `json:"total_egress_body_bytes"`
+
+	// 今日应用层正文字节
+	TodayIngressBodyBytes          int64 `json:"today_ingress_body_bytes"`
+	TodayUpstreamRequestBodyBytes  int64 `json:"today_upstream_request_body_bytes"`
+	TodayUpstreamResponseBodyBytes int64 `json:"today_upstream_response_body_bytes"`
+	TodayEgressBodyBytes           int64 `json:"today_egress_body_bytes"`
+
 	// 系统运行统计
 	AverageDurationMs float64 `json:"average_duration_ms"` // 平均响应时间
 
@@ -275,6 +287,7 @@ type UsageLogFilters struct {
 	AccountID int64
 	GroupID   int64
 	RequestID string
+	SessionID string
 	Model     string
 	// ModelFilterSource controls how Model is matched. Empty preserves raw usage_logs.model semantics.
 	ModelFilterSource     string

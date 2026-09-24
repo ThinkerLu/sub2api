@@ -101,6 +101,10 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // account_stats_cost
 			sqlmock.AnyArg(), // upstream_request_id
 			sqlmock.AnyArg(), // session_id
+			int64(0),         // ingress_body_bytes
+			int64(0),         // upstream_request_body_bytes
+			int64(0),         // upstream_response_body_bytes
+			int64(0),         // egress_body_bytes
 			log.NativeCompactionV2,
 			log.UpstreamTransport,
 			createdAt,
@@ -197,6 +201,10 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(), // account_stats_cost
 			sqlmock.AnyArg(), // upstream_request_id
 			sqlmock.AnyArg(), // session_id
+			int64(0),         // ingress_body_bytes
+			int64(0),         // upstream_request_body_bytes
+			int64(0),         // upstream_response_body_bytes
+			int64(0),         // egress_body_bytes
 			log.NativeCompactionV2,
 			log.UpstreamTransport,
 			createdAt,
@@ -438,6 +446,23 @@ func TestUsageLogRepositoryListWithFiltersRequestID(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .* FROM usage_logs WHERE request_id = \\$1 ORDER BY id DESC LIMIT \\$2 OFFSET \\$3").
 		WithArgs("req-0123", 21, 0).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	logs, page, err := repo.ListWithFilters(context.Background(), pagination.PaginationParams{Page: 1, PageSize: 20}, filters)
+	require.NoError(t, err)
+	require.Empty(t, logs)
+	require.NotNil(t, page)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUsageLogRepositoryListWithFiltersSessionID(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := &usageLogRepository{sql: db}
+
+	filters := usagestats.UsageLogFilters{SessionID: " 01a0d171-session "}
+
+	mock.ExpectQuery("SELECT .* FROM usage_logs WHERE session_id = \\$1 ORDER BY id DESC LIMIT \\$2 OFFSET \\$3").
+		WithArgs("01a0d171-session", 21, 0).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 
 	logs, page, err := repo.ListWithFilters(context.Background(), pagination.PaginationParams{Page: 1, PageSize: 20}, filters)
@@ -895,15 +920,24 @@ type usageLogScannerStub struct {
 }
 
 func (s usageLogScannerStub) Scan(dest ...any) error {
-	if len(dest) != len(s.values) {
-		return fmt.Errorf("scan arg count mismatch: got %d want %d", len(dest), len(s.values))
+	values := s.values
+	// Keep older fixtures concise: the four traffic counters were inserted
+	// immediately before native_compaction_v2, upstream_transport, created_at.
+	if len(dest) == len(values)+4 && len(values) >= 3 {
+		values = append([]any(nil), values...)
+		tail := append([]any(nil), values[len(values)-3:]...)
+		values = append(values[:len(values)-3], int64(0), int64(0), int64(0), int64(0))
+		values = append(values, tail...)
+	}
+	if len(dest) != len(values) {
+		return fmt.Errorf("scan arg count mismatch: got %d want %d", len(dest), len(values))
 	}
 	for i := range dest {
 		dv := reflect.ValueOf(dest[i])
 		if dv.Kind() != reflect.Pointer {
 			return fmt.Errorf("dest[%d] is not pointer", i)
 		}
-		dv.Elem().Set(reflect.ValueOf(s.values[i]))
+		dv.Elem().Set(reflect.ValueOf(values[i]))
 	}
 	return nil
 }
