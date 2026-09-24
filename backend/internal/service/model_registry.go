@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"math"
 	"os"
 	"strings"
@@ -77,27 +78,28 @@ type modelRegistryCapabilityProfile struct {
 }
 
 type modelRegistryPricingProfile struct {
-	InputPricePerToken                 float64  `yaml:"input_price_per_token"`
-	InputPricePerTokenPriority         float64  `yaml:"input_price_per_token_priority"`
-	ImageInputPricePerToken            float64  `yaml:"image_input_price_per_token"`
-	ImageCacheReadPricePerToken        float64  `yaml:"image_cache_read_price_per_token"`
-	OutputPricePerToken                float64  `yaml:"output_price_per_token"`
-	OutputPricePerTokenPriority        float64  `yaml:"output_price_per_token_priority"`
-	CacheCreationPricePerToken         float64  `yaml:"cache_creation_price_per_token"`
-	CacheCreationPricePerTokenPriority float64  `yaml:"cache_creation_price_per_token_priority"`
-	CacheReadPricePerToken             float64  `yaml:"cache_read_price_per_token"`
-	CacheReadPricePerTokenPriority     float64  `yaml:"cache_read_price_per_token_priority"`
-	CacheCreation5mPrice               float64  `yaml:"cache_creation_5m_price_per_token"`
-	CacheCreation1hPrice               float64  `yaml:"cache_creation_1h_price_per_token"`
-	FastMultiplier                     *float64 `yaml:"fast_multiplier"`
-	FlexMultiplier                     *float64 `yaml:"flex_multiplier"`
-	MaxReasoningEffortMultiplier       *float64 `yaml:"max_reasoning_effort_multiplier"`
-	SupportsCacheBreakdown             bool     `yaml:"supports_cache_breakdown"`
-	LongContextInputThreshold          int      `yaml:"long_context_input_threshold"`
-	LongContextThresholdInclusive      bool     `yaml:"long_context_threshold_inclusive"`
-	LongContextInputMultiplier         float64  `yaml:"long_context_input_multiplier"`
-	LongContextOutputMultiplier        float64  `yaml:"long_context_output_multiplier"`
-	ImageOutputPricePerToken           float64  `yaml:"image_output_price_per_token"`
+	InputPricePerToken                 float64            `yaml:"input_price_per_token"`
+	InputPricePerTokenPriority         float64            `yaml:"input_price_per_token_priority"`
+	ImageInputPricePerToken            float64            `yaml:"image_input_price_per_token"`
+	ImageCacheReadPricePerToken        float64            `yaml:"image_cache_read_price_per_token"`
+	OutputPricePerToken                float64            `yaml:"output_price_per_token"`
+	OutputPricePerTokenPriority        float64            `yaml:"output_price_per_token_priority"`
+	CacheCreationPricePerToken         float64            `yaml:"cache_creation_price_per_token"`
+	CacheCreationPricePerTokenPriority float64            `yaml:"cache_creation_price_per_token_priority"`
+	CacheReadPricePerToken             float64            `yaml:"cache_read_price_per_token"`
+	CacheReadPricePerTokenPriority     float64            `yaml:"cache_read_price_per_token_priority"`
+	CacheCreation5mPrice               float64            `yaml:"cache_creation_5m_price_per_token"`
+	CacheCreation1hPrice               float64            `yaml:"cache_creation_1h_price_per_token"`
+	FastMultiplier                     *float64           `yaml:"fast_multiplier"`
+	FlexMultiplier                     *float64           `yaml:"flex_multiplier"`
+	MaxReasoningEffortMultiplier       *float64           `yaml:"max_reasoning_effort_multiplier"`
+	ReasoningEffortMultipliers         map[string]float64 `yaml:"reasoning_effort_multipliers"`
+	SupportsCacheBreakdown             bool               `yaml:"supports_cache_breakdown"`
+	LongContextInputThreshold          int                `yaml:"long_context_input_threshold"`
+	LongContextThresholdInclusive      bool               `yaml:"long_context_threshold_inclusive"`
+	LongContextInputMultiplier         float64            `yaml:"long_context_input_multiplier"`
+	LongContextOutputMultiplier        float64            `yaml:"long_context_output_multiplier"`
+	ImageOutputPricePerToken           float64            `yaml:"image_output_price_per_token"`
 }
 
 // ModelRegistry owns an immutable, atomically replaceable view of an external
@@ -469,8 +471,17 @@ func compileModelRegistryPricing(name string, profile modelRegistryPricingProfil
 			return nil, fmt.Errorf("pricing profile %q has invalid %s", name, label)
 		}
 	}
+	for effort, multiplier := range profile.ReasoningEffortMultipliers {
+		if math.IsNaN(multiplier) || math.IsInf(multiplier, 0) || multiplier < 0 {
+			return nil, fmt.Errorf("pricing profile %q has invalid reasoning_effort_multipliers.%s", name, effort)
+		}
+	}
 	if profile.LongContextInputThreshold < 0 {
 		return nil, fmt.Errorf("pricing profile %q long_context_input_threshold must be non-negative", name)
+	}
+	reasoningEffortMultipliers := maps.Clone(profile.ReasoningEffortMultipliers)
+	if len(reasoningEffortMultipliers) == 0 && profile.MaxReasoningEffortMultiplier != nil {
+		reasoningEffortMultipliers = map[string]float64{"max": *profile.MaxReasoningEffortMultiplier}
 	}
 	return &ModelPricing{
 		InputPricePerToken:                 profile.InputPricePerToken,
@@ -486,7 +497,7 @@ func compileModelRegistryPricing(name string, profile modelRegistryPricingProfil
 		CacheReadPricePerTokenPriority:     profile.CacheReadPricePerTokenPriority,
 		FastMultiplier:                     cloneFloatPointer(profile.FastMultiplier),
 		FlexMultiplier:                     cloneFloatPointer(profile.FlexMultiplier),
-		MaxReasoningEffortMultiplier:       cloneFloatPointer(profile.MaxReasoningEffortMultiplier),
+		ReasoningEffortMultipliers:         reasoningEffortMultipliers,
 		CacheCreation5mPrice:               profile.CacheCreation5mPrice,
 		CacheCreation1hPrice:               profile.CacheCreation1hPrice,
 		SupportsCacheBreakdown:             profile.SupportsCacheBreakdown,
@@ -713,6 +724,6 @@ func cloneModelPricing(pricing *ModelPricing) *ModelPricing {
 	cloned := *pricing
 	cloned.FastMultiplier = cloneFloatPointer(pricing.FastMultiplier)
 	cloned.FlexMultiplier = cloneFloatPointer(pricing.FlexMultiplier)
-	cloned.MaxReasoningEffortMultiplier = cloneFloatPointer(pricing.MaxReasoningEffortMultiplier)
+	cloned.ReasoningEffortMultipliers = maps.Clone(pricing.ReasoningEffortMultipliers)
 	return &cloned
 }
