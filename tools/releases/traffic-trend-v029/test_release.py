@@ -5,9 +5,16 @@ import unittest
 from unittest.mock import patch
 
 import release
+import build_package
 
 
 class TrafficTrendReleaseTests(unittest.TestCase):
+    def test_go_tests_run_natively_but_release_binary_cross_compiles(self):
+        self.assertNotIn('GOOS', build_package.TEST_ENV)
+        self.assertNotIn('GOARCH', build_package.TEST_ENV)
+        self.assertEqual(build_package.GO_ENV['GOOS'], 'linux')
+        self.assertEqual(build_package.GO_ENV['GOARCH'], 'amd64')
+
     def test_switches_only_sub2api_image_and_preserves_overlay(self):
         original = ('services:\n'
                     '  postgres:\n    image: postgres:18-alpine\n'

@@ -26,6 +26,8 @@ DOCKER = ['docker', '--context', 'colima-sub2api-build']
 ENV = {**os.environ, 'PATH': NODE + ':/opt/homebrew/bin:' + os.environ.get('PATH', '')}
 GO_ENV = {**ENV, 'CGO_ENABLED': '0', 'GOOS': 'linux', 'GOARCH': 'amd64',
           'GOTOOLCHAIN': 'local', 'GOCACHE': '/private/tmp/sub2api-traffic-go-cache'}
+TEST_ENV = {key: value for key, value in ENV.items() if key not in ('GOOS', 'GOARCH', 'CGO_ENABLED')}
+TEST_ENV.update(GOTOOLCHAIN='local', GOCACHE='/private/tmp/sub2api-traffic-go-cache')
 
 
 def run(args, cwd, log=None, env=ENV):
@@ -94,7 +96,7 @@ def main():
                    ' -X main.Date=' + build_date + ' -X main.BuildType=release')
         run([GO, 'test', './internal/repository', '-run',
              '^(TestUsageTrendIncludesTrafficForEveryQueryPath|TestUserUsageTrendIncludesTraffic)$', '-count=1'],
-            source / 'backend', out / 'backend-tests.log', GO_ENV)
+            source / 'backend', out / 'backend-tests.log', TEST_ENV)
         run([GO, 'build', '-p', '2', '-tags', 'embed', '-trimpath', '-ldflags', ldflags,
              '-o', binary, './cmd/server'], source / 'backend', out / 'backend-build.log', GO_ENV)
         shutil.copytree(source / 'backend/resources', context / 'resources')
