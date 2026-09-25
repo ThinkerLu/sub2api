@@ -27,6 +27,8 @@ export default {
       trafficUpstreamRequest: '发往上游',
       trafficUpstreamResponse: '上游返回',
       trafficEgress: '返回客户端',
+      trafficTrend: '流量趋势',
+      trafficAll: '总量',
       trafficToday: '今日',
       trafficTotal: '累计',
       input: '输入',

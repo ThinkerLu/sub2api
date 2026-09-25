@@ -93,15 +93,19 @@ type DashboardStats struct {
 
 // TrendDataPoint represents a single point in trend data
 type TrendDataPoint struct {
-	Date                string  `json:"date"`
-	Requests            int64   `json:"requests"`
-	InputTokens         int64   `json:"input_tokens"`
-	OutputTokens        int64   `json:"output_tokens"`
-	CacheCreationTokens int64   `json:"cache_creation_tokens"`
-	CacheReadTokens     int64   `json:"cache_read_tokens"`
-	TotalTokens         int64   `json:"total_tokens"`
-	Cost                float64 `json:"cost"`        // 标准计费
-	ActualCost          float64 `json:"actual_cost"` // 实际扣除
+	Date                      string  `json:"date"`
+	Requests                  int64   `json:"requests"`
+	InputTokens               int64   `json:"input_tokens"`
+	OutputTokens              int64   `json:"output_tokens"`
+	CacheCreationTokens       int64   `json:"cache_creation_tokens"`
+	CacheReadTokens           int64   `json:"cache_read_tokens"`
+	TotalTokens               int64   `json:"total_tokens"`
+	Cost                      float64 `json:"cost"`        // 标准计费
+	ActualCost                float64 `json:"actual_cost"` // 实际扣除
+	IngressBodyBytes          int64   `json:"ingress_body_bytes"`
+	UpstreamRequestBodyBytes  int64   `json:"upstream_request_body_bytes"`
+	UpstreamResponseBodyBytes int64   `json:"upstream_response_body_bytes"`
+	EgressBodyBytes           int64   `json:"egress_body_bytes"`
 }
 
 // ModelStat represents usage statistics for a single model
