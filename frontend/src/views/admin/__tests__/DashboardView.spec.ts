@@ -134,6 +134,7 @@ describe('admin DashboardView', () => {
           Select: true,
           ModelDistributionChart: true,
           TokenUsageTrend: true,
+          TrafficUsageTrend: true,
           Line: true
         }
       }
@@ -152,19 +153,9 @@ describe('admin DashboardView', () => {
     }))
   })
 
-  it('renders the four application traffic totals and today values', async () => {
-    const trafficStats = {
-      ...createDashboardStats(),
-      total_ingress_body_bytes: 1024,
-      total_upstream_request_body_bytes: 2048,
-      total_upstream_response_body_bytes: 3 * 1024 * 1024,
-      total_egress_body_bytes: 4 * 1024 * 1024,
-      today_ingress_body_bytes: 512,
-      today_upstream_request_body_bytes: 1024,
-      today_upstream_response_body_bytes: 2 * 1024 * 1024,
-      today_egress_body_bytes: 1024 * 1024,
-    }
-    getSnapshotV2.mockResolvedValueOnce({ stats: trafficStats, trend: [], models: [] })
+  it('places the traffic trend after recent usage and uses the same trend response', async () => {
+    const trend = [{ date: '2026-09-25 12:00', ingress_body_bytes: 1024 }]
+    getSnapshotV2.mockResolvedValueOnce({ stats: createDashboardStats(), trend, models: [] })
 
     const wrapper = mount(DashboardView, {
       global: {
@@ -176,15 +167,15 @@ describe('admin DashboardView', () => {
           Select: true,
           ModelDistributionChart: true,
           TokenUsageTrend: true,
+          TrafficUsageTrend: true,
           Line: true
         }
       }
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('1 KB')
-    expect(wrapper.text()).toContain('2 KB')
-    expect(wrapper.text()).toContain('3 MB')
-    expect(wrapper.text()).toContain('4 MB')
+    expect(wrapper.findComponent({ name: 'TrafficUsageTrend' }).props('trendData')).toEqual(trend)
+    expect(wrapper.html().indexOf('admin.dashboard.recentUsage')).toBeLessThan(wrapper.html().indexOf('traffic-usage-trend-stub'))
+    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ include_trend: true }))
   })
 })

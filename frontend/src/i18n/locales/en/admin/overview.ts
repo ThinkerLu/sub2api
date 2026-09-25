@@ -23,6 +23,8 @@ export default {
       trafficUpstreamRequest: 'Sent upstream',
       trafficUpstreamResponse: 'Upstream response',
       trafficEgress: 'Returned to client',
+      trafficTrend: 'Traffic trend',
+      trafficAll: 'Total traffic',
       trafficToday: 'Today',
       trafficTotal: 'Total',
       input: 'Input',

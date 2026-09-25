@@ -1793,10 +1793,10 @@ export interface UsageLog {
   session_id?: string | null
 
   // Application-layer request/response body traffic.
-  ingress_body_bytes: number
-  upstream_request_body_bytes: number
-  upstream_response_body_bytes: number
-  egress_body_bytes: number
+  ingress_body_bytes?: number
+  upstream_request_body_bytes?: number
+  upstream_response_body_bytes?: number
+  egress_body_bytes?: number
 
   // Cache TTL Override
   cache_ttl_overridden: boolean
@@ -2003,6 +2003,10 @@ export interface TrendDataPoint {
   total_tokens: number
   cost: number // 标准计费
   actual_cost: number // 实际扣除
+  ingress_body_bytes: number
+  upstream_request_body_bytes: number
+  upstream_response_body_bytes: number
+  egress_body_bytes: number
 }
 
 export interface ModelStat {
