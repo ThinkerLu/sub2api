@@ -184,7 +184,7 @@ def atomic(path, text):
 
 
 def check_preflight(manifest, *, skip_database_backup=False):
-    archive = verify_package(manifest)
+    verify_package(manifest)
     assert DEPLOY.is_dir() and (DEPLOY / '.env').is_file(), 'Compose 目录不完整'
     compose('config', '--quiet')
     state = current_container()
@@ -197,15 +197,10 @@ def check_preflight(manifest, *, skip_database_backup=False):
     assert baseline.strip(), '迁移记录为空'
     compatible_migrations(baseline, baseline, manifest)
     assert compose('exec', '-T', 'redis', 'redis-cli', 'PING').strip() == 'PONG', 'Redis 不可用'
-    size = 0
     if skip_database_backup:
         print('警告：显式跳过数据库备份；本次发布无法提供数据库灾难恢复。配置和旧镜像仍备份。', flush=True)
-    else:
-        size = int(compose('exec', '-T', 'postgres', 'sh', '-ec',
-                       'exec psql -X -U "$POSTGRES_USER" -d "${POSTGRES_DB:-$POSTGRES_USER}" -Atqc "SELECT pg_database_size(current_database())"').strip())
-    needed = int(size * 1.5) + archive.stat().st_size * 3 + 512 * 1024 * 1024
     free = shutil.disk_usage(DEPLOY).free
-    assert free > needed, f'空间不足：需要 {needed} 字节，可用 {free} 字节（数据库备份：{not skip_database_backup}；仍需旧镜像备份与新镜像导入空间）'
+    print(f'磁盘可用空间：{free} 字节；不设置空间准入门槛。实际写入、备份或镜像导入失败仍会中止，磁盘耗尽可能影响运行服务。', flush=True)
     return baseline
 
 
