@@ -77,7 +77,7 @@ func newOpenAIWSUnsupportedModelSwitchError(model string) error {
 }
 
 func shouldReportOpenAIWSProxyAccountFailure(err error) bool {
-	return err != nil && !errors.Is(err, errOpenAIWSUnsupportedModelSwitch) && !service.IsOpenAIWSSessionPreemptedError(err)
+	return err != nil && !errors.Is(err, errOpenAIWSUnsupportedModelSwitch) && !service.IsOpenAIWSSessionPreemptedError(err) && !service.IsOpenAIWSMemoryAdmissionError(err) && !errors.Is(err, service.ErrOpenAIWSRecoveryRejected)
 }
 
 // openAIWSIngressEndedByClient reports whether a finished ingress WebSocket turn
@@ -345,7 +345,10 @@ func openAICompatibleTextTargetAllowed(c *gin.Context, apiKey *service.APIKey, m
 // 上可服务的目标平台。CN 供应商（kimi/zhipu/deepseek）刻意排除：其账号无法通过
 // WSv2 ingress 的 transport 过滤，且 WS HTTP 桥没有面向 CN 的 Responses 转换，
 // 放行只会把明确的策略拒绝变成误导性的 "no available account"。
-func isResponsesWebSocketCompositePlatform(platform string) bool {
+func isResponsesWebSocketCompositePlatform(platform string, allowProviders ...bool) bool {
+	if len(allowProviders) > 0 && allowProviders[0] && (service.IsCNProvider(platform) || platform == service.PlatformOpenCodeGo) {
+		return true
+	}
 	switch platform {
 	case service.PlatformOpenAI, service.PlatformGrok:
 		return true
@@ -2395,7 +2398,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		c.Request = c.Request.WithContext(ctx)
 	}
 
-	adaptiveRoute, routeErr := h.gatewayService.OpenAIWSAdaptiveRouteAvailable(ctx, apiKey.GroupID)
+	adaptiveRoute, routeErr := h.gatewayService.OpenAIWSAdaptiveRouteAvailable(ctx, apiKey.GroupID, openAICompatibleRequestPlatform(ctx, apiKey))
 	if routeErr != nil {
 		reqLog.Warn("openai.websocket_adaptive_route_lookup_failed", zap.Error(routeErr))
 		h.errorResponse(c, http.StatusServiceUnavailable, "service_unavailable", "Unable to resolve websocket ingress limits")
@@ -2419,7 +2422,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	defer func() {
 		_ = wsConn.CloseNow()
 	}()
-	if adaptiveRoute && h.cfg != nil && h.cfg.Gateway.OpenAIWS.DualLegEnabled {
+	if h.cfg != nil && h.cfg.Gateway.OpenAIWS.DualLegEnabled {
 		cleanupMemory, memoryErr := h.gatewayService.BindOpenAIWSDualLegMemory(wsConn)
 		if memoryErr != nil {
 			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "websocket memory admission unavailable")
@@ -2436,6 +2439,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	firstMessageTimeout := service.ResolveOpenAIWSClientFirstMessageTimeout(h.cfg)
 	msgType, firstMessage, err := service.ReadOpenAIWSClientFirstMessage(ctx, wsConn, firstMessageTimeout, readProgress)
 	if err != nil {
+		if service.IsOpenAIWSMemoryAdmissionError(err) {
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "websocket memory reservation rejected")
+			return
+		}
 		if errors.Is(context.Cause(ctx), service.ErrOpenAIWSIngressLeaseLost) {
 			reqLog.Warn("openai.websocket_ingress_lease_lost_before_first_message", zap.Error(err))
 			closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "websocket ingress capacity lease lost; please reconnect")
@@ -2482,7 +2489,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	ctx = c.Request.Context()
 	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
 		platform, ok := service.ResolvedTargetPlatformFromContext(ctx)
-		if !ok || !isResponsesWebSocketCompositePlatform(platform) {
+		if !ok || !isResponsesWebSocketCompositePlatform(platform, h.cfg != nil && h.cfg.Gateway.OpenAIWS.DualLegEnabled) {
 			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "Responses WebSocket API only supports OpenAI-compatible models for composite groups")
 			return
 		}
@@ -2566,6 +2573,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		apiKey.GroupID,
 		wsForwardModel,
 		requiredCapability,
+		requestPlatform,
 	)
 	if wsModelRouteErr != nil {
 		reqLog.Warn("openai.websocket_model_route_lookup_failed", zap.Error(wsModelRouteErr))
@@ -2927,6 +2935,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")
 			return
 		}
+		lastCompletedResponseID := ""
 		hooks := &service.OpenAIWSIngressHooks{
 			BeforeRoute: func(turn int, payload []byte, model string) error {
 				if turn <= 1 {
@@ -2935,7 +2944,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if blocked := blockedModelAllowlistCandidate(apiKey.Group, requestmodel.FromBodyCandidates("", "application/json", payload)); blocked != "" {
 					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "model is not available for this group", nil)
 				}
-				return h.gatewayService.PrepareOpenAIWSModelMigration(ctx, c, account, payload, model, subject.UserID, apiKey.ID, apiKey.GroupID)
+				return h.gatewayService.PrepareOpenAIWSModelMigration(ctx, c, account, payload, model, subject.UserID, apiKey.ID, apiKey.GroupID, lastCompletedResponseID)
 			},
 			ClientLifecycleContext:      clientLifecycleCtx,
 			InitialRequestModel:         reqModel,
@@ -3049,6 +3058,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return checkSimpleModeTurnBilling()
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
+				if turnErr != nil {
+					lastCompletedResponseID = ""
+				}
 				if turn == 1 && turnErr == nil {
 					// The completed first turn can no longer be replayed. Later
 					// failover must carry its own current-turn payload.
@@ -3087,8 +3099,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					bindCtx, cancelBind := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 					bindErr := h.gatewayService.SaveOpenAIWSResponseOwner(bindCtx, owner)
 					cancelBind()
+					lastCompletedResponseID = ""
 					if bindErr != nil {
 						reqLog.Warn("openai.websocket_strict_owner_bind_failed", zap.Error(bindErr))
+					} else {
+						lastCompletedResponseID = result.RequestID
 					}
 				}
 				turnUsageFields := turnMapping.ToUsageFields(turnRequestedModel, turnUpstreamModel)
@@ -3174,6 +3189,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 
 		wsFirstMessage := wsAttemptMessage.load()
+		if frozenMigration != nil {
+			hooks.InitialLogicalTurnID = frozenMigration.TurnID
+		}
 		// 切组/会话失配防护：previous_response_id 未在当前分组命中粘连账号（StickyPreviousHit=false），
 		// 说明该会话链不属于本次调度到的账号，原样转发会触发上游会话链鉴权失败（“鉴权失败，请检查 API Key”）。
 		// 故剥离首包里的 previous_response_id，改用首包内 input 重建上下文；带 function_call_output 的
@@ -3206,9 +3224,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			}
 			var migrationRetry *service.OpenAIWSMigrationRetryError
 			if errors.As(err, &migrationRetry) {
-				writeCtx, cancelWrite := context.WithTimeout(ctx, 5*time.Second)
-				_ = wsConn.Write(writeCtx, coderws.MessageText, migrationRetry.Event)
-				cancelWrite()
+				if len(migrationRetry.Event) > 0 {
+					writeCtx, cancelWrite := context.WithTimeout(ctx, 5*time.Second)
+					_ = wsConn.Write(writeCtx, coderws.MessageText, migrationRetry.Event)
+					cancelWrite()
+				}
 				closeOpenAIClientWS(wsConn, coderws.StatusNormalClosure, "full-context retry required")
 				return
 			}

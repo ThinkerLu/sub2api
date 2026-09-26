@@ -31,6 +31,26 @@ func (s *OpenAIGatewayService) buildOpenAIResponsesWSURL(account *Account) (stri
 	if account == nil {
 		return "", errors.New("account is nil")
 	}
+	if !account.IsOpenAI() && account.Type == AccountTypeAPIKey && (account.IsCNProvider() || account.IsOpenCodeGo()) {
+		if account.ResponsesWSV2Profile() == "" {
+			return "", errors.New("Responses WS protocol profile is missing")
+		}
+		raw, _ := account.Extra["responses_ws_url"].(string)
+		parsed, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil {
+			return "", err
+		}
+		validated := *parsed
+		if validated.Scheme == "wss" {
+			validated.Scheme = "https"
+		} else {
+			validated.Scheme = "http"
+		}
+		if _, err := s.validateUpstreamBaseURL(validated.String()); err != nil {
+			return "", err
+		}
+		return parsed.String(), nil
+	}
 	var targetURL string
 	switch account.Type {
 	case AccountTypeOAuth:

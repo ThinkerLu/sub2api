@@ -13,6 +13,7 @@ import (
 	"time"
 
 	coderws "github.com/coder/websocket"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -20,6 +21,18 @@ import (
 // Opt-in client protocol verification. The isolated CLI only receives synthetic
 // local responses, has no real credentials, and is never asked to execute tools.
 func TestCodexWSRecoveryProbe(t *testing.T) {
+	runCodexWSRecoveryProbe(t, true)
+}
+
+func TestCodexWSUnknownExecutionDoesNotRetry(t *testing.T) {
+	runCodexWSRecoveryProbe(t, false)
+}
+
+func TestCodexWSPrecommitCloseRetriesFullContext(t *testing.T) {
+	runCodexWSRecoveryProbe(t, true, true)
+}
+
+func runCodexWSRecoveryProbe(t *testing.T, recoverCacheMiss bool, closeBeforeExecution ...bool) {
 	binary := os.Getenv("SUB2API_CODEX_PROBE_BIN")
 	if binary == "" {
 		t.Skip("set SUB2API_CODEX_PROBE_BIN to the verified Codex CLI")
@@ -33,6 +46,8 @@ func TestCodexWSRecoveryProbe(t *testing.T) {
 	recovered := false
 	incrementalItems := 0
 	fullItems := 0
+	var initialScope, initialDigest string
+	scopeStable, inputStable := false, false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handlers.Add(1)
 		defer handlers.Done()
@@ -61,6 +76,9 @@ func TestCodexWSRecoveryProbe(t *testing.T) {
 				continue
 			}
 			mu.Lock()
+			probeContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+			probeContext.Request = r
+			scope := OpenAIWSMigrationScope(probeContext, body, 1)
 			if !sentError {
 				if gjson.GetBytes(body, "previous_response_id").String() == "" {
 					mu.Unlock()
@@ -68,11 +86,24 @@ func TestCodexWSRecoveryProbe(t *testing.T) {
 				}
 				sentError = true
 				incrementalItems = len(gjson.GetBytes(body, "input").Array())
+				initialScope = scope
+				initialDigest, _, _ = openAIWSInputSuffixDigest(body, 0)
 				mu.Unlock()
-				_ = conn.Write(ctx, coderws.MessageText, []byte(`{"type":"error","status":400,"error":{"type":"invalid_request_error","code":"previous_response_not_found","param":"previous_response_id","message":"Previous response not found."}}`))
+				if len(closeBeforeExecution) > 0 && closeBeforeExecution[0] {
+					_ = conn.Close(coderws.StatusNormalClosure, "full-context handoff")
+					return
+				}
+				event := openAIWSUnknownExecutionEvent()
+				if recoverCacheMiss {
+					event = []byte(`{"type":"error","status":400,"error":{"type":"invalid_request_error","code":"previous_response_not_found","param":"previous_response_id","message":"Previous response not found."}}`)
+				}
+				_ = conn.Write(ctx, coderws.MessageText, event)
 				continue
 			}
 			fullItems = len(gjson.GetBytes(body, "input").Array())
+			scopeStable = initialScope != "" && initialScope == scope
+			digest, _, digestErr := openAIWSInputSuffixDigest(body, incrementalItems)
+			inputStable = digestErr == nil && digest == initialDigest
 			recovered = gjson.GetBytes(body, "previous_response_id").String() == "" && strings.Contains(string(body), "SYNTHETIC_WS_RECOVERY_MARKER")
 			mu.Unlock()
 			for _, event := range []string{
@@ -102,11 +133,22 @@ func TestCodexWSRecoveryProbe(t *testing.T) {
 	command.Env = append(command.Env, "CODEX_HOME="+tmp, "SUB2API_SYNTHETIC_KEY=synthetic-not-a-secret")
 	command.Env = append(command.Env, "HTTP_PROXY=http://127.0.0.1:1", "HTTPS_PROXY=http://127.0.0.1:1", "http_proxy=http://127.0.0.1:1", "https_proxy=http://127.0.0.1:1", "NO_PROXY=127.0.0.1,localhost", "no_proxy=127.0.0.1,localhost")
 	output, err := command.CombinedOutput()
+	if !recoverCacheMiss {
+		require.Error(t, err)
+		mu.Lock()
+		defer mu.Unlock()
+		require.True(t, sentError)
+		require.Equal(t, 1, connections)
+		require.False(t, recovered)
+		return
+	}
 	require.NoError(t, err, "isolated CLI: %s", string(output))
 	mu.Lock()
 	defer mu.Unlock()
 	require.True(t, sentError)
 	require.True(t, recovered)
+	require.True(t, scopeStable)
+	require.True(t, inputStable)
 	require.GreaterOrEqual(t, connections, 2)
 	require.GreaterOrEqual(t, fullItems, incrementalItems)
 	t.Logf("connections=%d incremental_items=%d full_items=%d recovered=%v", connections, incrementalItems, fullItems, recovered)

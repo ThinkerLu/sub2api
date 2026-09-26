@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,10 +19,44 @@ import (
 )
 
 func TestWSModelMigrationHandlerFreezesTargetAndSuppressesDuplicate(t *testing.T) {
+	runWSModelMigrationHandler(t, false)
+}
+
+func TestWSModelMigrationHandlerAcrossNativeHTTPProvider(t *testing.T) {
+	runWSModelMigrationHandler(t, true)
+}
+
+func TestWSModelMigrationHandlerFullFrameSwitch(t *testing.T) {
+	runWSModelMigrationHandler(t, false, true)
+}
+
+func TestWSModelMigrationHandlerFullFrameNativeSwitch(t *testing.T) {
+	runWSModelMigrationHandler(t, true, true)
+}
+
+func runWSModelMigrationHandler(t *testing.T, nativeProvider bool, fullFrameSwitch ...bool) {
 	var mu sync.Mutex
 	var models []string
 	var bodies [][]byte
+	makeEvent := func(body []byte) string {
+		model := gjson.GetBytes(body, "model").String()
+		mu.Lock()
+		models = append(models, model)
+		bodies = append(bodies, body)
+		turn := len(models)
+		mu.Unlock()
+		return fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_%d","model":%q,"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`, turn, model)
+	}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				return
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", makeEvent(body))
+			return
+		}
 		conn, err := coderws.Accept(w, r, nil)
 		if err != nil {
 			return
@@ -32,13 +67,7 @@ func TestWSModelMigrationHandlerFreezesTargetAndSuppressesDuplicate(t *testing.T
 			if err != nil {
 				return
 			}
-			model := gjson.GetBytes(body, "model").String()
-			mu.Lock()
-			models = append(models, model)
-			bodies = append(bodies, body)
-			turn := len(models)
-			mu.Unlock()
-			event := fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_%d","model":%q,"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}],"usage":{"input_tokens":1,"output_tokens":1}}}`, turn, model)
+			event := makeEvent(body)
 			if err := conn.Write(r.Context(), coderws.MessageText, []byte(event)); err != nil {
 				return
 			}
@@ -59,8 +88,21 @@ func TestWSModelMigrationHandlerFreezesTargetAndSuppressesDuplicate(t *testing.T
 	target := old
 	target.ID++
 	target.Credentials = map[string]any{"api_key": "sk-target-test", "base_url": upstream.URL, "model_mapping": map[string]any{"deepseek-v4-pro": "deepseek-v4-pro"}}
+	if nativeProvider {
+		target.Platform = service.PlatformDeepseek
+		target.Credentials["api_protocol"] = "responses"
+		target.Extra = map[string]any{"responses_ws_mode": "http_bridge"}
+	}
 	h.accountRepo.accounts = []service.Account{old, target}
 	_ = h.clientConn.CloseNow()
+	select {
+	case <-h.handlerDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("initial unused connection did not close")
+	}
+	if nativeProvider {
+		h.apiKey.Group = &service.Group{ID: *h.apiKey.GroupID, Platform: service.PlatformComposite, RateMultiplier: 1}
+	}
 	dial := func() *coderws.Conn {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -82,16 +124,24 @@ func TestWSModelMigrationHandlerFreezesTargetAndSuppressesDuplicate(t *testing.T
 		return body
 	}
 	first := dial()
+	full := `{"type":"response.create","model":"deepseek-v4-pro","input":[{"role":"user","content":"hello"},{"type":"reasoning","encrypted_content":"gAAAAA-old"},{"role":"assistant","content":"answer"},{"role":"user","content":"next"}]}`
 	write(first, `{"type":"response.create","model":"gpt-5.1","input":[{"role":"user","content":"hello"}]}`)
 	require.Equal(t, "resp_1", gjson.GetBytes(read(first), "response.id").String())
-	write(first, `{"type":"response.create","model":"deepseek-v4-pro","previous_response_id":"resp_1","stream_id":"stream-2","input":[{"role":"user","content":"next"}]}`)
-	errorEvent := read(first)
-	require.Equal(t, "previous_response_not_found", gjson.GetBytes(errorEvent, "error.code").String())
-	require.Equal(t, "stream-2", gjson.GetBytes(errorEvent, "stream_id").String())
+	if len(fullFrameSwitch) > 0 && fullFrameSwitch[0] {
+		write(first, full)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, _, err := first.Read(ctx)
+		cancel()
+		require.Equal(t, coderws.StatusNormalClosure, coderws.CloseStatus(err))
+	} else {
+		write(first, `{"type":"response.create","model":"deepseek-v4-pro","previous_response_id":"resp_1","stream_id":"stream-2","input":[{"role":"user","content":"next"}]}`)
+		errorEvent := read(first)
+		require.Equal(t, "previous_response_not_found", gjson.GetBytes(errorEvent, "error.code").String())
+		require.Equal(t, "stream-2", gjson.GetBytes(errorEvent, "stream_id").String())
+	}
 	mu.Lock()
 	require.Len(t, models, 1)
 	mu.Unlock()
-	full := `{"type":"response.create","model":"deepseek-v4-pro","input":[{"role":"user","content":"hello"},{"type":"reasoning","encrypted_content":"gAAAAA-old"},{"role":"assistant","content":"answer"},{"role":"user","content":"next"}]}`
 	second := dial()
 	write(second, full)
 	require.Equal(t, "resp_2", gjson.GetBytes(read(second), "response.id").String())
@@ -109,19 +159,36 @@ func TestWSModelMigrationHandlerFreezesTargetAndSuppressesDuplicate(t *testing.T
 	mu.Lock()
 	require.Len(t, models, 2)
 	mu.Unlock()
-	write(second, `{"type":"response.create","model":"gpt-5.1","previous_response_id":"resp_2","input":[{"role":"user","content":"back"}]}`)
-	require.Equal(t, "previous_response_not_found", gjson.GetBytes(read(second), "error.code").String())
+	backBody := `{"type":"response.create","model":"gpt-5.1","input":[{"role":"user","content":"hello"},{"role":"assistant","content":"answer"},{"role":"user","content":"next"},{"role":"assistant","content":"answer"},{"role":"user","content":"back"}]}`
+	if len(fullFrameSwitch) > 0 && fullFrameSwitch[0] {
+		write(second, backBody)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, _, err := second.Read(ctx)
+		cancel()
+		require.Equal(t, coderws.StatusNormalClosure, coderws.CloseStatus(err))
+	} else {
+		write(second, `{"type":"response.create","model":"gpt-5.1","previous_response_id":"resp_2","input":[{"role":"user","content":"back"}]}`)
+		require.Equal(t, "previous_response_not_found", gjson.GetBytes(read(second), "error.code").String())
+	}
 	back := dial()
-	write(back, `{"type":"response.create","model":"gpt-5.1","input":[{"role":"user","content":"hello"},{"role":"assistant","content":"answer"},{"role":"user","content":"next"},{"role":"assistant","content":"answer"},{"role":"user","content":"back"}]}`)
+	write(back, backBody)
 	require.Equal(t, "resp_3", gjson.GetBytes(read(back), "response.id").String())
 	mu.Lock()
 	require.Equal(t, []string{"gpt-5.1", "deepseek-v4-pro", "gpt-5.1"}, models)
 	mu.Unlock()
 	require.Eventually(t, func() bool { return len(h.usageRepo.created) == 3 }, 3*time.Second, time.Millisecond)
-	for _, accountID := range []int64{old.ID, target.ID, old.ID} {
+	for range 3 {
 		usage := <-h.usageRepo.created
+		accountID := old.ID
+		upstream := service.UsageUpstreamTransportWebSocket
+		if usage.RequestID == "resp_2" {
+			accountID = target.ID
+			if nativeProvider {
+				upstream = service.UsageUpstreamTransportHTTP
+			}
+		}
 		require.Equal(t, accountID, usage.AccountID)
 		require.Equal(t, service.UsageIngressTransportWebSocket, usage.IngressTransport)
-		require.Equal(t, service.UsageUpstreamTransportWebSocket, usage.UpstreamTransport)
+		require.Equal(t, upstream, usage.UpstreamTransport)
 	}
 }

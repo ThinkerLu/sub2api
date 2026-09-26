@@ -4,7 +4,7 @@
 
 ## 目的和使用
 
-在账号 `adaptive` 模式下保持客户端 Responses WS，逐个 turn 选择上游 HTTP/SSE 或 WS。启用条件为 `gateway.openai_ws.mode_router_v2_enabled=true`、`dual_leg_enabled=true`，并显式设置正数 `dual_leg_memory_budget_bytes` 和不超过总额的 `dual_leg_account_memory_budget_bytes`。默认关闭，内存额度默认 0，未配置额度时不能启用。
+在账号允许的 WS 候选模式及 HTTP-only 模式下保持客户端 Responses WS，逐个 turn 选择上游 HTTP/SSE 或 WS。启用条件为 `gateway.openai_ws.mode_router_v2_enabled=true`、`dual_leg_enabled=true`，并显式设置正数 `dual_leg_memory_budget_bytes` 和不超过总额的 `dual_leg_account_memory_budget_bytes`。默认关闭，内存额度默认 0，未配置额度时不能启用。
 
 双链路自动使用最终 GPT 模型阈值判定。模型在明确名单中且原始、改写、replay 候选体任一达到 `http_bridge_threshold_bytes` 时走 HTTP；其他模型不套此选路门槛。所有模型仍受 `client_read_limit_bytes`、共享预算及上游能力约束。
 
@@ -14,8 +14,8 @@
 - 同一账号、同一有效 WS 可以保留增量旧 ID。切换连接或 HTTP/WS 后使用已验证的 bridge 输入与输出历史恢复全量请求，未知旧 ID 或缺工具上下文拒绝。
 - 握手失败且请求 `NOT_SENT` 时可向同一账号 HTTP 回退。开始 WS 写入或 HTTP 提交前标记 `SENT_UNKNOWN`，之后禁止内部自动重放和账号 failover。普通执行故障返回 `upstream_execution_unknown`（非缓存未命中），保留客户端连接；下一 turn 必须给出新的全量上下文。
 - 输入按 32 KiB 分块增长预留，改写、replay、上游解码窗口、保留输出均计入同一实例/账号预算。拒绝不切到 HTTP；关闭与重复释放安全。历史预算保留到被新窗口替换或连接关闭。
-- 当前估算使用 8 倍工作集系数，尚未完成 RSS/cgroup 压测校准；预留额度不是进程 RSS 硬上限，不承诺集群总容量。生产启用前需结合容器内存限制和压测校准。
-- 本批只覆盖同账号双链路。跨账号恢复、完整跨供应商净化、共享迁移意图、入站传输落库及客户端版本合成验收仍须完成后才能整体发布。
+- 当前估算使用 8 倍工作集系数并预留结构与 socket 开销；已通过本地 16 MiB 并发预算拒绝及容器试验。预留额度不是进程 RSS 硬上限，不承诺集群容量，生产启用前仍需结合进程基线、容器限制与真实负载校准。
+- 跨账号恢复、目标历史净化、共享迁移意图、协议档案和入站传输由同版本独立功能提供，适用边界与客户端限制分别见对应文档。
 
 ## 配置和数据
 

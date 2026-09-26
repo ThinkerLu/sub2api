@@ -1052,6 +1052,21 @@ func TestOpenAIGatewayServiceRecordUsage_WSModePrefersUpstreamRequestIDOverClien
 	require.Equal(t, "resp_openai_ws_turn_456", usageRepo.lastLog.RequestID)
 }
 
+func TestOpenAIRecordUsagePartialTurnsUseDistinctLogicalIDs(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{}
+	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
+	svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+	ctx := context.WithValue(context.Background(), ctxkey.ClientRequestID, "one-websocket-connection")
+	for _, id := range []string{"turn-a", "turn-b"} {
+		result := &OpenAIForwardResult{LogicalTurnID: id, OpenAIWSMode: true, Usage: OpenAIUsage{InputTokens: 8, OutputTokens: 4}, Model: "gpt-5.1", Duration: time.Second}
+		err := svc.RecordUsage(ctx, &OpenAIRecordUsageInput{Result: result, APIKey: &APIKey{ID: 10050}, User: &User{ID: 20050}, Account: &Account{ID: 30050}, IngressTransport: UsageIngressTransportWebSocket})
+		require.NoError(t, err)
+		require.Equal(t, "ws_turn:"+id, billingRepo.lastCmd.RequestID)
+		require.Equal(t, "ws_turn:"+id, usageRepo.lastLog.RequestID)
+		require.Empty(t, result.RequestID)
+	}
+}
+
 func TestOpenAIGatewayServiceRecordUsage_GeneratesRequestIDWhenAllSourcesMissing(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{}
 	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}

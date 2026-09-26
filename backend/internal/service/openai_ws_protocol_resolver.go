@@ -39,8 +39,11 @@ func (r *defaultOpenAIWSProtocolResolver) Resolve(account *Account) OpenAIWSProt
 	if account == nil {
 		return openAIWSHTTPDecision("account_missing")
 	}
-	if !account.IsOpenAI() {
+	if !account.IsOpenAI() && account.ResponsesWSV2Profile() == "" {
 		return openAIWSHTTPDecision("platform_not_openai")
+	}
+	if !account.IsOpenAI() && !openAIWSHasCompatibleHTTP(account) {
+		return openAIWSHTTPDecision("http_protocol_incompatible")
 	}
 	if account.IsOpenAIWSForceHTTPEnabled() {
 		return openAIWSHTTPDecision("account_force_http")
@@ -50,6 +53,9 @@ func (r *defaultOpenAIWSProtocolResolver) Resolve(account *Account) OpenAIWSProt
 	}
 
 	wsCfg := r.cfg.Gateway.OpenAIWS
+	if !account.IsOpenAI() && !wsCfg.DualLegEnabled {
+		return openAIWSHTTPDecision("provider_profile_requires_dual_leg")
+	}
 	if wsCfg.ForceHTTP {
 		return openAIWSHTTPDecision("global_force_http")
 	}
@@ -60,7 +66,7 @@ func (r *defaultOpenAIWSProtocolResolver) Resolve(account *Account) OpenAIWSProt
 		if !wsCfg.OAuthEnabled {
 			return openAIWSHTTPDecision("oauth_disabled")
 		}
-	} else if account.IsOpenAIApiKey() {
+	} else if account.Type == AccountTypeAPIKey && account.ResponsesWSV2Profile() != "" {
 		if !wsCfg.APIKeyEnabled {
 			return openAIWSHTTPDecision("apikey_disabled")
 		}

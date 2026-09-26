@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -94,6 +97,108 @@ func TestWSMemoryGovernorConcurrentGrowthNeverOversubscribes(t *testing.T) {
 	require.EqualValues(t, 80, g.reserved)
 	s.close()
 	require.Zero(t, g.reserved)
+}
+
+func TestWSMemorySocketLeaseReleasesCapacityAndBytesTogether(t *testing.T) {
+	g := &openAIWSMemoryGovernor{limit: 2 << 20, perAccount: 1 << 20, accounts: make(map[int64]int64)}
+	a, b := &openAIWSMemorySession{g: g}, &openAIWSMemorySession{g: g}
+	require.NoError(t, a.bindAccount(1))
+	require.NoError(t, b.bindAccount(1))
+	release, err := a.reserveSocket(1)
+	require.NoError(t, err)
+	_, err = b.reserveSocket(1)
+	require.ErrorIs(t, err, errOpenAIWSMemoryBudget)
+	require.NoError(t, a.finishTurn(0))
+	require.Positive(t, g.reserved)
+	require.Equal(t, 1, g.sockets[1])
+	require.ErrorIs(t, a.bindAccount(2), errOpenAIWSMemoryBudget)
+	release()
+	release()
+	require.Zero(t, g.reserved)
+	require.Empty(t, g.sockets)
+	release, err = b.reserveSocket(1)
+	require.NoError(t, err)
+	b.close()
+	release()
+	a.close()
+	require.Zero(t, g.reserved)
+	require.Empty(t, g.sockets)
+	require.Empty(t, g.accounts)
+}
+
+func TestWSRetainedInputDoesNotAliasTheSourceFrame(t *testing.T) {
+	frame := []byte(`padding {"role":"user","content":"small"} trailing`)
+	item := json.RawMessage(frame[8 : len(frame)-9])
+	owned := ownedOpenAIWSReplayItems([]json.RawMessage{item})
+	require.Equal(t, string(item), string(owned[0]))
+	require.Equal(t, len(owned[0]), cap(owned[0]))
+	copy(frame, make([]byte, len(frame)))
+	require.Contains(t, string(owned[0]), "small")
+}
+
+func TestWSJSONComplexityBudgetIgnoresStringsAndRejectsDeepNesting(t *testing.T) {
+	var scan openAIWSJSONBudgetScan
+	n, err := scan.consume([]byte(`{"text":"[{},]`))
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n)
+	n, err = scan.consume([]byte(`","input":[{},{}]}`))
+	require.NoError(t, err)
+	require.EqualValues(t, 5, n)
+	require.Zero(t, scan.depth)
+	require.False(t, scan.quoted)
+	_, err = (&openAIWSJSONBudgetScan{}).consume([]byte(strings.Repeat("[", 129)))
+	require.ErrorIs(t, err, errOpenAIWSMemoryBudget)
+	g := &openAIWSMemoryGovernor{limit: 1024, perAccount: 1024, accounts: make(map[int64]int64)}
+	s := &openAIWSMemorySession{g: g}
+	require.ErrorIs(t, s.beginTurn([]byte(`{"input":[{},{},{},{},{}]}`)), errOpenAIWSMemoryBudget)
+	require.Zero(t, g.reserved)
+}
+
+func TestDualLegLargeFrameMemoryPressure(t *testing.T) {
+	if os.Getenv("SUB2API_WS_STRESS") != "1" {
+		t.Skip("opt-in 16 MiB concurrent admission test")
+	}
+	s, account, ws, httpUp := adaptiveFixture()
+	s.cfg.Gateway.OpenAIWS.DualLegEnabled = true
+	s.cfg.Gateway.OpenAIWS.DualLegMemoryBudgetBytes = 512 << 20
+	s.cfg.Gateway.OpenAIWS.DualLegAccountMemoryBudgetBytes = 512 << 20
+	server, errs := startAdaptiveServer(t, s, account, nil)
+	first := dialAdaptive(t, server)
+	payload := `{"type":"response.create","model":"deepseek-v4-pro","input":[{"role":"user","content":"` + strings.Repeat("x", 16<<20) + `"}]}`
+	writeAdaptive(t, first, payload)
+	forwarded := requirePassthroughUpstreamWrite(t, ws, 5*time.Second)
+	require.Greater(t, len(forwarded), 15<<20)
+	second := dialAdaptive(t, server)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = second.Write(ctx, coderws.MessageText, []byte(payload))
+	select {
+	case err := <-errs:
+		require.ErrorIs(t, err, errOpenAIWSMemoryBudget)
+	case <-ctx.Done():
+		t.Fatal("second large frame was not rejected")
+	}
+	require.Empty(t, ws.writes)
+	require.Empty(t, httpUp.snapshot())
+	var stats runtime.MemStats
+	runtime.ReadMemStats(&stats)
+	if status, err := os.ReadFile("/proc/self/status"); err == nil {
+		for _, line := range strings.Split(string(status), "\n") {
+			if strings.HasPrefix(line, "VmHWM:") {
+				t.Log(line)
+			}
+		}
+	}
+	t.Logf("input_bytes=%d heap_alloc_bytes=%d memory_budget_bytes=%d", len(payload), stats.HeapAlloc, s.cfg.Gateway.OpenAIWS.DualLegMemoryBudgetBytes)
+	ws.Send(`{"type":"response.completed","response":{"id":"resp_large","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}`)
+	readAdaptiveCompleted(t, first)
+	_ = first.CloseNow()
+	_ = second.CloseNow()
+	require.Eventually(t, func() bool {
+		s.openaiWSMemory.mu.Lock()
+		defer s.openaiWSMemory.mu.Unlock()
+		return s.openaiWSMemory.reserved == 0 && len(s.openaiWSMemory.sockets) == 0
+	}, 3*time.Second, time.Millisecond)
 }
 
 func TestDualLegMemoryRejectionDoesNotStartEitherUpstream(t *testing.T) {

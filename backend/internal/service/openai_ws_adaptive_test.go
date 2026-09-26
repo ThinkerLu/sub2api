@@ -58,14 +58,23 @@ func startAdaptiveServer(t *testing.T, s *OpenAIGatewayService, a *Account, hook
 			return
 		}
 		defer conn.CloseNow()
-		if s.IsOpenAIWSAdaptive(a) {
+		cleanupMemory := func() {}
+		if s.cfg.Gateway.OpenAIWS.DualLegEnabled {
+			cleanupMemory, err = s.BindOpenAIWSDualLegMemory(conn)
+			if err != nil {
+				errs <- err
+				return
+			}
+			defer cleanupMemory()
+		}
+		if s.IsOpenAIWSAdaptive(a) && !s.cfg.Gateway.OpenAIWS.DualLegEnabled {
 			conn.SetReadLimit(-1)
 		} else {
 			conn.SetReadLimit(ResolveOpenAIWSClientReadLimitBytes(s.cfg))
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 		defer cancel()
-		_, first, err := conn.Read(ctx)
+		_, first, err := ReadOpenAIWSClientMessage(ctx, conn, 0, coderws.StatusPolicyViolation, "")
 		if err != nil {
 			errs <- err
 			return
@@ -73,7 +82,9 @@ func startAdaptiveServer(t *testing.T, s *OpenAIGatewayService, a *Account, hook
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = r.Clone(ctx)
 		c.Request.Header = r.Header.Clone()
-		errs <- s.ProxyResponsesWebSocketFromClient(ctx, c, conn, a, "sk-test", first, hooks)
+		proxyErr := s.ProxyResponsesWebSocketFromClient(ctx, c, conn, a, "sk-test", first, hooks)
+		cleanupMemory()
+		errs <- proxyErr
 	}))
 	t.Cleanup(server.Close)
 	return server, errs

@@ -127,6 +127,9 @@ var openAIWSGPTThresholdModels = map[string]struct{}{
 	"gpt-5.4": {}, "gpt-5.4-mini": {}, "gpt-5.4-nano": {}, "gpt-5.5": {},
 	"gpt-5.5-pro": {}, "gpt-5.6-sol": {}, "gpt-5.6-terra": {}, "gpt-5.6-luna": {},
 	"gpt-6-astra": {}, "gpt-6-sol": {}, "gpt-6-luna": {},
+	"gpt-6": {}, "gpt-5.6": {}, "gpt-5-mini": {}, "gpt-5-nano": {}, "gpt-5-pro": {},
+	"gpt-5-codex": {}, "gpt-5.1-codex": {}, "gpt-5.1-codex-mini": {}, "gpt-5.1-codex-max": {},
+	"gpt-5.2-codex": {}, "gpt-5.2-pro": {}, "gpt-5.4-pro": {},
 }
 
 func (s *OpenAIGatewayService) openAIWSRouteExceedsThreshold(finalModel string, sizes ...int) bool {
@@ -532,7 +535,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	_, grokExplicitToolsField := openAIWSHTTPBridgeRawField(grokIntentSourceBody, "tools")
 	grokExplicitToolIntent := account.Platform == PlatformGrok && hasGrokResponsesToolIntent(grokIntentSourceBody)
 	var clientToolMapping apicompat.ResponsesClientToolMapping
-	functionToolUpstream := (account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey) || account.Platform == PlatformGrok
+	functionToolUpstream := ((account.Platform == PlatformOpenAI || account.UsesNativeCNResponses() || account.ResponsesWSV2Profile() != "") && account.Type == AccountTypeAPIKey) || account.Platform == PlatformGrok
 	if functionToolUpstream {
 		if account.Platform == PlatformGrok {
 			body, err = sanitizeGrokResponsesInput(body)
@@ -706,6 +709,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, actualModel)
 		}
 		clientError := buildOpenAIWSHTTPBridgeErrorEvent(resp.StatusCode, upstreamMsg)
+		if openAIWSCommitFromContext(ctx) != nil {
+			return nil, fmt.Errorf("upstream HTTP turn failed: status=%d", resp.StatusCode)
+		}
 		if writeErr := writeClientMessage(clientError); writeErr == nil {
 			markOpenAIWSClientVisibleFailure(c, "error", clientError)
 		}
@@ -856,6 +862,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		}
 
 		upstreamMessage := []byte(openAICompatPayloadWithEventType(trimmedData, pendingSSEEventType))
+		if err := openAIWSMemoryFromContext(ctx).admitEvent(upstreamMessage); err != nil {
+			return resultWithUsage(), err
+		}
 		if normalized, changed := normalizeCompletedImageGenerationStatus(upstreamMessage); changed {
 			upstreamMessage = normalized
 		}
@@ -881,6 +890,18 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if openAIWSMessageShouldParseUsage(eventType, upstreamMessage) {
 			parseOpenAIWSResponseUsageFromCompletedEvent(upstreamMessage, &usage)
 		}
+		if openAIWSCommitFromContext(ctx) != nil && (eventType == "error" || eventType == "response.failed") {
+			upstreamTerminalEvent = eventType
+			s.handleOpenAIWSFailureAccountSideEffects(ctx, account, actualModel, resp.Header, upstreamMessage)
+			clientEvent := openAIWSUnknownExecutionEvent()
+			if markOpenAICyberPolicyEvent(c, upstreamMessage, http.StatusOK, &usage) {
+				clientEvent = upstreamMessage
+			}
+			if err := writeClientMessage(clientEvent); err != nil {
+				return resultWithUsage(), err
+			}
+			return resultWithUsage(), errors.New("upstream HTTP stream failed after submission")
+		}
 		if eventType == "error" || eventType == "response.failed" {
 			markOpenAICyberPolicyEvent(c, upstreamMessage, http.StatusOK, &usage)
 		}
@@ -892,11 +913,6 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if s.toolCorrector != nil && openAIWSEventMayContainToolCalls(eventType) && openAIWSMessageLikelyContainsToolCalls(upstreamMessage) {
 			if corrected, changed := s.toolCorrector.CorrectToolCallsInSSEBytes(upstreamMessage); changed {
 				upstreamMessage = corrected
-			}
-		}
-		if eventType == "response.output_item.done" || eventType == "response.completed" || eventType == "response.done" {
-			if err := openAIWSMemoryFromContext(ctx).growWorking(int64(len(upstreamMessage))); err != nil {
-				return nil, err
 			}
 		}
 		replayCollector.AddEvent(eventType, upstreamMessage)

@@ -14,8 +14,15 @@ const (
 	openAIWSTurnTerminal
 )
 
-type openAIWSTurnCommit struct{ state atomic.Int32 }
+type openAIWSTurnCommit struct {
+	state atomic.Int32
+	id    string
+}
 type openAIWSTurnCommitKey struct{}
+
+func openAIWSUnknownExecutionEvent() []byte {
+	return []byte(`{"type":"error","status":400,"error":{"type":"invalid_request_error","code":"upstream_execution_unknown","message":"Upstream execution could not be confirmed. This turn was not replayed; a new full-context request is required."}}`)
+}
 
 func openAIWSCommitFromContext(ctx context.Context) *openAIWSTurnCommit {
 	if ctx == nil {

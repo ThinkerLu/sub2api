@@ -58,7 +58,7 @@ func (s *OpenAIGatewayService) OpenAIWSModelSwitchAllowed(c *gin.Context, groupI
 	return false
 }
 
-func (s *OpenAIGatewayService) PrepareOpenAIWSModelMigration(ctx context.Context, c *gin.Context, account *Account, body []byte, requestedModel string, userID, apiKeyID int64, groupID *int64) error {
+func (s *OpenAIGatewayService) PrepareOpenAIWSModelMigration(ctx context.Context, c *gin.Context, account *Account, body []byte, requestedModel string, userID, apiKeyID int64, groupID *int64, completedResponse ...string) error {
 	if groupID == nil || !s.OpenAIWSModelSwitchAllowed(c, *groupID) || !s.IsOpenAIWSAdaptive(account) {
 		return nil
 	}
@@ -66,10 +66,33 @@ func (s *OpenAIGatewayService) PrepareOpenAIWSModelMigration(ctx context.Context
 	if restricted {
 		return ErrOpenAIWSRecoveryRejected
 	}
-	if account.IsModelSupported(requestedModel) || account.IsModelSupported(mapping.MappedModel) {
+	targetPlatform := account.Platform
+	if key := getAPIKeyFromContext(c); key != nil && key.Group != nil && key.Group.Platform == PlatformComposite {
+		platform, ok := DetectModelPlatform(requestedModel)
+		if !ok {
+			platform, ok = DetectModelPlatform(mapping.MappedModel)
+		}
+		if !ok {
+			return ErrOpenAIWSRecoveryRejected
+		}
+		targetPlatform = NormalizeOpenAICompatiblePlatform(platform)
+		ctx = WithResolvedTargetPlatform(ctx, targetPlatform)
+		mapping, restricted = s.ResolveChannelMappingAndRestrict(ctx, groupID, requestedModel)
+		if restricted {
+			return ErrOpenAIWSRecoveryRejected
+		}
+		if mappedPlatform, ok := DetectModelPlatform(mapping.MappedModel); ok && NormalizeOpenAICompatiblePlatform(mappedPlatform) != targetPlatform {
+			return ErrOpenAIWSRecoveryRejected
+		}
+	}
+	if account.Platform == targetPlatform && (account.IsModelSupported(requestedModel) || account.IsModelSupported(mapping.MappedModel)) {
 		return nil
 	}
 	previous := strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String())
+	fullFrame := previous == ""
+	if fullFrame && len(completedResponse) > 0 {
+		previous = completedResponse[0]
+	}
 	if previous == "" {
 		return ErrOpenAIWSRecoveryRejected
 	}
@@ -84,7 +107,7 @@ func (s *OpenAIGatewayService) PrepareOpenAIWSModelMigration(ctx context.Context
 	if commit := openAIWSCommitFromContext(ctx); commit != nil && !commit.notSent() {
 		return ErrOpenAIWSRecoveryRejected
 	}
-	selection, _, err := s.SelectAccountWithSchedulerForCapability(ctx, groupID, "", "", mapping.MappedModel, map[int64]struct{}{account.ID: {}}, OpenAIUpstreamTransportResponsesWebsocketV2Ingress, OpenAIEndpointCapabilityResponses, false, false, false, account.Platform)
+	selection, _, err := s.SelectAccountWithSchedulerForCapability(ctx, groupID, "", "", mapping.MappedModel, map[int64]struct{}{account.ID: {}}, OpenAIUpstreamTransportResponsesWebsocketV2Ingress, OpenAIEndpointCapabilityResponses, false, false, false, targetPlatform)
 	if err != nil {
 		return err
 	}
@@ -107,11 +130,20 @@ func (s *OpenAIGatewayService) PrepareOpenAIWSModelMigration(ctx context.Context
 		return err
 	}
 	intent := OpenAIWSMigrationIntent{Version: 1, Owner: *owner, TargetAccountID: target.ID, RequestedModel: requestedModel, UpstreamModel: normalizeOpenAIModelForUpstream(target, target.GetMappedModel(mapping.MappedModel)), InputSuffixDigest: digest, InputSuffixItems: count, TurnID: hex.EncodeToString(id[:]), NotSent: true, ExpiresAt: time.Now().Add(90 * time.Second).Unix()}
+	intent.TargetPlatform = target.Platform
 	if openAIWSHistoryProtocol(intent.UpstreamModel) == "" {
 		return ErrOpenAIWSRecoveryRejected
 	}
+	if fullFrame {
+		if _, err := sanitizeOpenAIWSMigrationHistory(body, owner.UpstreamModel, intent.UpstreamModel); err != nil {
+			return err
+		}
+	}
 	if err := s.CreateOpenAIWSMigrationIntent(ctx, intent); err != nil {
 		return err
+	}
+	if fullFrame {
+		return &OpenAIWSMigrationRetryError{}
 	}
 	event := map[string]any{"type": "error", "status": 400, "error": map[string]any{"type": "invalid_request_error", "code": "previous_response_not_found", "message": "Previous response not found.", "param": "previous_response_id"}}
 	if stream := gjson.GetBytes(body, "stream_id"); stream.Exists() {
@@ -172,6 +204,13 @@ func (s *OpenAIGatewayService) ResumeOpenAIWSModelMigration(ctx context.Context,
 	if !s.OpenAIWSModelSwitchAllowed(c, *groupID) || intent.RequestedModel != requestedModel || strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String()) != "" {
 		return nil, nil, ErrOpenAIWSRecoveryRejected
 	}
+	owner, ownerErr := s.LoadOpenAIWSResponseOwner(ctx, *groupID, intent.Owner.ResponseID, userID, apiKeyID)
+	if ownerErr != nil {
+		return nil, nil, ownerErr
+	}
+	if *owner != intent.Owner {
+		return nil, nil, ErrOpenAIWSRecoveryRejected
+	}
 	digest, _, err := openAIWSInputSuffixDigest(body, intent.InputSuffixItems)
 	if err != nil || digest != intent.InputSuffixDigest {
 		return nil, nil, ErrOpenAIWSRecoveryRejected
@@ -194,6 +233,9 @@ func (s *OpenAIGatewayService) ResumeOpenAIWSModelMigration(ctx context.Context,
 }
 
 func (s *OpenAIGatewayService) SelectOpenAIWSMigrationTarget(ctx context.Context, groupID *int64, intent *OpenAIWSMigrationIntent, model, platform string) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	if intent.TargetPlatform != "" && intent.TargetPlatform != platform {
+		return nil, OpenAIAccountScheduleDecision{}, ErrOpenAIWSRecoveryRejected
+	}
 	accounts, err := s.listSchedulableAccounts(ctx, groupID, platform)
 	if err != nil {
 		return nil, OpenAIAccountScheduleDecision{}, err

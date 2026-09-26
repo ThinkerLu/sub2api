@@ -17,13 +17,23 @@ func sanitizeOpenAIResponsesKnownForeignReasoning(body []byte, finalModel string
 		return kind == "reasoning" && ((passback && strings.HasPrefix(encrypted, "gAAAAA")) || (gpt && strings.HasSuffix(encrypted, "-0") && !strings.HasPrefix(encrypted, "gAAAAA")))
 	}
 	changed := false
-	for _, item := range gjson.GetBytes(body, "input").Array() {
+	var profileErr error
+	input := parseRawJSONView(body).Get("input")
+	if !input.IsArray() {
+		return body, false, nil
+	}
+	input.ForEach(func(_, item gjson.Result) bool {
 		kind := item.Get("type").String()
 		encrypted := item.Get("encrypted_content").String()
-		if passback && (kind == "compaction" || kind == "compaction_summary") && encrypted != "" {
-			return body, false, fmt.Errorf("target model cannot consume account-bound compaction history")
+		if passback && (kind == "compaction" || kind == "compaction_summary") && strings.HasPrefix(encrypted, "gAAAAA") {
+			profileErr = fmt.Errorf("target model cannot consume account-bound compaction history")
+			return false
 		}
 		changed = changed || shouldDrop(kind, encrypted)
+		return true
+	})
+	if profileErr != nil {
+		return body, false, profileErr
 	}
 	if !changed {
 		return body, false, nil

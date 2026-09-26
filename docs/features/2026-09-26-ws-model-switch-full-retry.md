@@ -6,11 +6,13 @@
 
 在已启用双链路和有效内存额度的基础上，配置 `gateway.openai_ws.model_switch_full_retry_enabled=true`，并显式设置 `model_switch_allowed_group_ids` 与 `model_switch_allowed_client_versions`。默认关闭，空 allowlist 不启用。当前验证版本为 Codex CLI `0.155.0-alpha.16.4`，客户端首段 User-Agent 必须为对应 `codex_cli_rs/<version>`。
 
-本批入口仅对已具备 OpenAI Responses 协议适配的 `adaptive` 账号启用跨账号恢复。旧账号还能支持目标模型时保持账号；无法支持且请求模型确实变化时，核对上一终态 response 的 user/API key/group/会话作用域，再选择并冻结一个合格目标账号。原始增量帧不提交上游，向客户端返回标准 `previous_response_not_found`，保留 `stream_id`。
+入口对具备兼容 Responses 档案的受管账号启用跨账号恢复，包括原生 HTTP Responses 目标；跨平台通过 composite 分组既有模型归属规则约束。旧账号仍符合目标平台/模型策略时保持账号；不符合且请求模型确实变化时，核对上一终态 response 的 user/API key/group/会话作用域，再冻结目标账号与平台。原始增量帧不提交上游，向客户端返回标准 `previous_response_not_found`，保留 `stream_id`。
 
 ## 重连与历史安全
 
 重连需相同认证主体与可识别线程/会话、空旧 ID、相同目标模型，且 full input 的尾段摘要匹配被拒绝的增量。请求用共享 CAS 认领一次，目标账号不可被旧 sticky 或通用调度替换；目标策略变化、重复、TTL 到期、缓存异常或后续失败均不再自动重播。意图存活 90 秒，完整重发的去重记录保留两分钟；切回模型可以换新意图，上一请求的去重记录仍有效。
+
+客户端切模型已经发送空旧 ID 的全量帧时，只在本连接保存了已确认的上一终态归属、内容可移植且仍 NOT_SENT 时，注册相同的一次性目标意图并正常关闭；不对不存在的旧 ID 发送缓存错误。已验证 Codex 会以全量上下文重连。实际客户端探针同时核对重连前后的执行作用域与输入摘要一致。
 
 目标副本保留用户/助手消息及按顺序配对的 function/custom call/output，跨账号丢弃不可移植 reasoning，不将思考转成普通文本。拒绝孤立工具输出、未完成工具对、重复 call ID、旧文件/向量库/容器 ID、item_reference、compaction 密文及未适配的托管工具。输入尾段匹配并不证明任意客户端持有完整历史，因此仅对经过验证的客户端版本启用。
 

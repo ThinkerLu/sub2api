@@ -53,6 +53,7 @@ func TestWSMigrationFullRetryClaimsOnceAndAllowsNextTurn(t *testing.T) {
 	c.Request.Header.Set("thread-id", "test-thread")
 	owner.Scope = OpenAIWSMigrationScope(c, nil, owner.APIKeyID)
 	ctx := context.Background()
+	require.NoError(t, s.SaveOpenAIWSResponseOwner(ctx, owner))
 	delta := []byte(`{"input":[{"role":"user","content":"next"}]}`)
 	digest, count, err := openAIWSInputSuffixDigest(delta, 0)
 	require.NoError(t, err)

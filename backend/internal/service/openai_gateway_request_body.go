@@ -755,14 +755,14 @@ func normalizeOpenAIStoreFalseReasoningForAccount(body []byte, account *Account,
 }
 
 func normalizeOpenAIResponsesFinalWSReasoning(body []byte, account *Account, finalModel string) ([]byte, bool, error) {
-	if account == nil || !account.IsOpenAI() {
+	if account == nil {
 		return body, false, nil
 	}
 	cleaned, cleanedChanged, err := sanitizeOpenAIResponsesKnownForeignReasoning(body, finalModel)
 	if err != nil {
 		return body, false, err
 	}
-	if ResolveThinkingProtocol(finalModel) == ThinkingProtocolPassbackRequired {
+	if !account.IsOpenAI() || ResolveThinkingProtocol(finalModel) == ThinkingProtocolPassbackRequired {
 		return cleaned, cleanedChanged, nil
 	}
 	normalized, changed, err := normalizeOpenAIResponsesReasoningContentReplay(cleaned)

@@ -147,7 +147,7 @@ func sanitizeOpenAIWSMigrationHistory(body []byte, sourceModel, targetModel stri
 				return nil, ErrOpenAIWSRecoveryRejected
 			}
 		default:
-			return nil, fmt.Errorf("migration history item is not portable: %s", typ)
+			return nil, fmt.Errorf("migration history item is not portable")
 		}
 		filtered = append(filtered, item)
 	}

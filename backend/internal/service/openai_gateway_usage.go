@@ -337,6 +337,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if result.OpenAIWSMode {
 		if upstreamRequestID := strings.TrimSpace(result.RequestID); upstreamRequestID != "" {
 			requestID = upstreamRequestID
+		} else if result.LogicalTurnID != "" {
+			requestID = "ws_turn:" + result.LogicalTurnID
 		}
 	}
 	// Async Grok video: always use the stable task id for dedup (status + content polls

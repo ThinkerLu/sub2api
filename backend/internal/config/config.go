@@ -3506,6 +3506,9 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("dual_leg_enabled requires mode_router_v2_enabled and positive account/process memory budgets with account <= process")
 		}
 	}
+	if c.Gateway.OpenAIWS.GPTThresholdRoutingEnabled && !c.Gateway.OpenAIWS.DualLegEnabled {
+		return fmt.Errorf("gpt_threshold_routing_enabled requires dual_leg_enabled")
+	}
 	if c.Gateway.OpenAIWS.HTTPBridgeEnabled && c.Gateway.OpenAIWS.HTTPBridgeThresholdBytes == 0 {
 		return fmt.Errorf("gateway.openai_ws.http_bridge_threshold_bytes must be positive when http_bridge_enabled is true")
 	}

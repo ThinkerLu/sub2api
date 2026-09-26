@@ -629,6 +629,9 @@ export default {
         responsesWebsocketsV2Desc:
           'Disabled by default. Enable to allow responses_websockets_v2 capability (still gated by global and account-type switches).',
         wsMode: 'WS mode',
+        wsProfile: 'WS protocol profile',
+        wsProfileNone: 'Not configured (HTTP only)',
+        wsEndpoint: 'WS endpoint',
         wsModeDesc:
           'Applies only to the current OpenAI account type. Select Off to disable WS. Other modes use the selected connection method only when gateway.openai_ws.mode_router_v2_enabled=true; otherwise, they use the context pool. adaptive prefers WS, bridges oversized first requests over HTTP, and returns to WS when full context shrinks, releasing bridge history; no client message byte limit applies.',
         wsModeOff: 'Off (off)',

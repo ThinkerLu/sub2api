@@ -152,6 +152,58 @@ func TestDualLegSameAccountProtocolSwitchRebuildsPortableHistory(t *testing.T) {
 	require.Empty(t, httpUp.snapshot())
 }
 
+func TestDualLegGPTCountsOriginalFrameWhitespace(t *testing.T) {
+	s, a, ws, httpUp := adaptiveFixture()
+	s.cfg.Gateway.OpenAIWS.DualLegEnabled = true
+	s.cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes = 200
+	ws.Send(`{"type":"response.completed","response":{"id":"resp_wrong_route","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}`)
+	server, _ := startAdaptiveServer(t, s, a, nil)
+	client := dialAdaptive(t, server)
+	writeAdaptive(t, client, strings.Repeat(" ", 200)+`{"type":"response.create","model":"gpt-5.1","input":"small"}`)
+	readAdaptiveCompleted(t, client)
+	require.Len(t, httpUp.snapshot(), 1)
+	require.Empty(t, ws.writes)
+}
+
+func TestDualLegHandshakeChangeRebuildsBeforeSubmission(t *testing.T) {
+	s, a, first, httpUp := adaptiveFixture()
+	s.cfg.Gateway.OpenAIWS.DualLegEnabled = true
+	second := newStagedPassthroughConn()
+	dialer := &adaptiveWarmupDialer{conns: make(chan *stagedPassthroughConn, 2)}
+	dialer.conns <- first
+	dialer.conns <- second
+	s.openaiWSPassthroughDialer = dialer
+	settled := make(chan int, 2)
+	server, _ := startAdaptiveServer(t, s, a, &OpenAIWSIngressHooks{AfterTurn: func(n int, r *OpenAIForwardResult, _ error) {
+		if r != nil {
+			settled <- n
+		}
+	}})
+	client := dialAdaptive(t, server)
+	writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","input":[{"role":"user","content":"original context"}]}`)
+	requirePassthroughUpstreamWrite(t, first, time.Second)
+	first.Send(`{"type":"response.completed","response":{"id":"resp_old_model","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}],"usage":{"input_tokens":1,"output_tokens":1}}}`)
+	readAdaptiveCompleted(t, client)
+	writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.6-sol","previous_response_id":"resp_old_model","input":[{"role":"user","content":"next"}]}`)
+	body := requirePassthroughUpstreamWrite(t, second, time.Second)
+	require.Empty(t, gjson.GetBytes(body, "previous_response_id").String())
+	require.Contains(t, string(body), "original context")
+	require.Contains(t, string(body), "answer")
+	second.Send(`{"type":"response.completed","response":{"id":"resp_new_model","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}`)
+	readAdaptiveCompleted(t, client)
+	for _, want := range []int{1, 2} {
+		select {
+		case got := <-settled:
+			require.Equal(t, want, got)
+		case <-time.After(time.Second):
+			t.Fatal("turn settlement missing")
+		}
+	}
+	require.Empty(t, httpUp.snapshot())
+	require.Empty(t, first.writes)
+	require.Empty(t, second.writes)
+}
+
 func TestDualLegCommitStateNeverBecomesRetrySafeAgain(t *testing.T) {
 	c := &openAIWSTurnCommit{}
 	require.True(t, c.notSent())
@@ -160,4 +212,31 @@ func TestDualLegCommitStateNeverBecomesRetrySafeAgain(t *testing.T) {
 		require.False(t, c.notSent())
 	}
 	require.Equal(t, int32(openAIWSTurnTerminal), c.state.Load())
+}
+
+func TestDualLegCommittedCacheErrorDoesNotRequestClientReplay(t *testing.T) {
+	s, account, ws, httpUp := adaptiveFixture()
+	s.cfg.Gateway.OpenAIWS.DualLegEnabled = true
+	settled := make(chan *OpenAIForwardResult, 1)
+	server, _ := startAdaptiveServer(t, s, account, &OpenAIWSIngressHooks{AfterTurn: func(_ int, r *OpenAIForwardResult, _ error) { settled <- r }})
+	client := dialAdaptive(t, server)
+	writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","input":"hello"}`)
+	requirePassthroughUpstreamWrite(t, ws, time.Second)
+	ws.Send(`{"type":"response.created","response":{"id":"resp_partial","model":"gpt-5.1"}}`)
+	_, err := readPassthroughLifecycleFrame(t, client, time.Second)
+	require.NoError(t, err)
+	ws.Send(`{"type":"error","error":{"code":"previous_response_not_found","message":"missing after submission"},"usage":{"input_tokens":4,"output_tokens":2}}`)
+	event, err := readPassthroughLifecycleFrame(t, client, time.Second)
+	require.NoError(t, err)
+	require.Equal(t, "upstream_execution_unknown", gjson.GetBytes(event, "error.code").String())
+	select {
+	case result := <-settled:
+		require.NotNil(t, result)
+		require.Equal(t, 4, result.Usage.InputTokens)
+		require.Equal(t, 2, result.Usage.OutputTokens)
+	case <-time.After(time.Second):
+		t.Fatal("failed turn did not settle")
+	}
+	require.Empty(t, ws.writes)
+	require.Empty(t, httpUp.snapshot())
 }

@@ -39,6 +39,7 @@ type OpenAIWSMigrationIntent struct {
 	Version           int                   `json:"version"`
 	Owner             OpenAIWSResponseOwner `json:"owner"`
 	TargetAccountID   int64                 `json:"target_account_id"`
+	TargetPlatform    string                `json:"target_platform,omitempty"`
 	RequestedModel    string                `json:"requested_model"`
 	UpstreamModel     string                `json:"upstream_model"`
 	InputSuffixDigest string                `json:"input_suffix_digest"`
@@ -91,6 +92,12 @@ func (s *OpenAIGatewayService) SaveOpenAIWSResponseOwner(ctx context.Context, ow
 		return err
 	}
 	if string(existing) != string(payload) {
+		if !strings.HasPrefix(string(existing), "ambiguous:") {
+			_, markErr := cache.CompareAndSwapOpenAIWSRecoveryState(ctx, "owner", key, existing, append([]byte("ambiguous:"), existing...))
+			if markErr != nil {
+				return markErr
+			}
+		}
 		return ErrOpenAIWSRecoveryRejected
 	}
 	return nil

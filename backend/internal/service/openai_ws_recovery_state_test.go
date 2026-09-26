@@ -57,8 +57,13 @@ func TestWSRecoveryOwnerRequiresExactUserKeyAndGroup(t *testing.T) {
 	other.AccountID++
 	require.ErrorIs(t, s.SaveOpenAIWSResponseOwner(ctx, other), ErrOpenAIWSRecoveryRejected)
 	actual, err := s.LoadOpenAIWSResponseOwner(ctx, 1, owner.ResponseID, 2, 3)
+	require.ErrorIs(t, err, ErrOpenAIWSRecoveryRejected)
+	require.Nil(t, actual)
+	cache, _ := s.openAIWSRecoveryCache()
+	raw, err := cache.GetOpenAIWSRecoveryState(ctx, "owner", openAIWSRecoveryKey(1, ":", owner.ResponseID))
 	require.NoError(t, err)
-	require.Equal(t, owner, *actual)
+	require.Contains(t, string(raw), `"account_id":4`)
+	require.True(t, strings.HasPrefix(string(raw), "ambiguous:"))
 }
 func TestWSMigrationIntentSingleClaimAndFailClosed(t *testing.T) {
 	s, owner := wsRecoveryFixture()

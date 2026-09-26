@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -62,7 +63,8 @@ func (c *gatewayCache) CompareAndSwapOpenAIWSRecoveryState(ctx context.Context, 
 	if c == nil || c.rdb == nil {
 		return false, service.ErrOpenAIWSRecoveryUnavailable
 	}
-	if kind != "migration" || len(expected) == 0 || len(replacement) == 0 || len(replacement) > 16*1024 {
+	ownerConflict := kind == "owner" && bytes.Equal(replacement, append([]byte("ambiguous:"), expected...)) && len(replaceTTL) == 0
+	if (kind != "migration" && !ownerConflict) || len(expected) == 0 || len(replacement) == 0 || len(replacement) > 32*1024 {
 		return false, service.ErrOpenAIWSRecoveryRejected
 	}
 	k, err := openAIWSRecoveryCacheKey(kind, key)

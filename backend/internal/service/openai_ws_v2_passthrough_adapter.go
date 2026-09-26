@@ -954,6 +954,25 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		retained = hooks.adaptiveUpstream
 	}
 	reused := retained != nil && retained.conn != nil
+	fingerprint := openAIWSHandshakeFingerprint(wsURL, proxyURL, capturedSessionModel, gjson.GetBytes(firstClientMessage, "service_tier").String(), headers)
+	if reused && openAIWSCommitFromContext(ctx) != nil && retained.handshakeFingerprint != "" && retained.handshakeFingerprint != fingerprint {
+		retained.close()
+		return errOpenAIWSAdaptiveReplayRequired
+	}
+	var releaseSocket func()
+	if !reused && openAIWSMemoryFromContext(ctx) != nil {
+		limit := (&openAIWSConnPool{cfg: s.cfg}).effectiveMaxConnsByAccount(account)
+		var err error
+		releaseSocket, err = openAIWSMemoryFromContext(ctx).reserveSocket(limit)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if releaseSocket != nil {
+				releaseSocket()
+			}
+		}()
+	}
 	if reused {
 		upstreamConn, statusCode, handshakeHeaders = retained.conn, retained.status, retained.headers
 	}
@@ -999,15 +1018,20 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 	if retained != nil {
 		retained.conn, retained.status, retained.headers = upstreamConn, statusCode, handshakeHeaders
+		retained.handshakeFingerprint = openAIWSHandshakeFingerprint(wsURL, proxyURL, capturedSessionModel, gjson.GetBytes(firstClientMessage, "service_tier").String(), headers)
+		if releaseSocket != nil {
+			retained.releaseReservation = releaseSocket
+			releaseSocket = nil
+		}
 	}
 	defer func() {
 		if retained == nil {
 			_ = upstreamConn.Close()
-		} else if !hooks.adaptiveWarmup {
+		} else if !hooks.adaptiveSingleTurn {
 			retained.close()
 		}
 	}()
-	logOpenAIWSV2Passthrough("relay_connection_selected account_id=%d reused=%v warmup=%v", account.ID, reused, hooks != nil && hooks.adaptiveWarmup)
+	logOpenAIWSV2Passthrough("relay_connection_selected account_id=%d reused=%v single_turn=%v", account.ID, reused, hooks != nil && hooks.adaptiveSingleTurn)
 	if !reused {
 		logOpenAIWSV2Passthrough(
 			"relay_dial_ok account_id=%d status_code=%d upstream_request_id=%s",
@@ -1300,7 +1324,17 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		UpstreamConn:       trafficUpstreamFrameConn,
 		FirstClientMessage: firstClientMessage,
 		Options: openaiwsv2.RelayOptions{
-			SingleTurn:                 hooks != nil && hooks.adaptiveWarmup,
+			SingleTurn:              hooks != nil && hooks.adaptiveSingleTurn,
+			SingleTurnErrorTerminal: openAIWSCommitFromContext(ctx) != nil,
+			TransformClientEvent: func(kind coderws.MessageType, payload []byte) []byte {
+				if openAIWSCommitFromContext(ctx) != nil && kind == coderws.MessageText {
+					event := gjson.GetBytes(payload, "type").String()
+					if (event == "error" || event == "response.failed") && GetOpsCyberPolicy(c) == nil {
+						return openAIWSUnknownExecutionEvent()
+					}
+				}
+				return payload
+			},
 			RetainUpstreamOnSingleTurn: retained != nil,
 			WriteTimeout:               s.openAIWSWriteTimeout(),
 			FirstTurnStartedAt:         firstTurnStartedAt,
@@ -1377,8 +1411,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			},
 			BeforeClientWrite: func(msgType coderws.MessageType, payload []byte) {
 				openAIWSCommitFromContext(ctx).advance(openAIWSTurnExecuting)
-				if hooks != nil && hooks.adaptiveWarmupCollector != nil && msgType == coderws.MessageText {
-					hooks.adaptiveWarmupCollector.AddEvent(gjson.GetBytes(payload, "type").String(), payload)
+				if hooks != nil && hooks.adaptiveTurnCollector != nil && msgType == coderws.MessageText {
+					hooks.adaptiveTurnCollector.AddEvent(gjson.GetBytes(payload, "type").String(), payload)
 				}
 				if msgType == coderws.MessageText && openAIWSPassthroughIsTerminalOutput(payload) {
 					turnLifecycle.beginTerminalWrite()
@@ -1397,7 +1431,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				if openAIWSCommitFromContext(ctx) != nil {
 					return
 				}
-				if hooks != nil && hooks.adaptiveWarmup && exit.Stage == "single_turn_completed" {
+				if hooks != nil && hooks.adaptiveSingleTurn && exit.Stage == "single_turn_completed" {
 					return
 				}
 				if context.Cause(ctx) != nil {
@@ -1415,19 +1449,21 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				_ = clientConn.CloseNow()
 			},
 			BeforeWriteClient: func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) error {
+				if err := openAIWSMemoryFromContext(ctx).admitEvent(payload); err != nil {
+					return err
+				}
 				if msgType != coderws.MessageText {
 					return nil
 				}
 				eventType, _, _ := parseOpenAIWSEventEnvelope(payload)
-				if eventType == "response.output_item.done" || eventType == "response.completed" || eventType == "response.done" {
-					if err := openAIWSMemoryFromContext(ctx).growWorking(int64(len(payload))); err != nil {
-						return err
-					}
-				}
 				if eventType == "response.created" {
 					failureAccountSideEffectsApplied = false
 				}
 				if (eventType == "error" || eventType == "response.failed") && markOpenAIWSV2PassthroughCyberPolicy(c, payload) {
+					return nil
+				}
+				if openAIWSCommitFromContext(ctx) != nil && (eventType == "error" || eventType == "response.failed") {
+					s.handleOpenAIWSFailureAccountSideEffects(ctx, account, capturedSessionModel, handshakeHeaders, payload)
 					return nil
 				}
 				errCodeRaw, errTypeRaw, errMsgRaw := parseOpenAIWSErrorEventFields(payload)
