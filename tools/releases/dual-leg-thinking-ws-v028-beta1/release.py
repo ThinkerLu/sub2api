@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deploy or roll back the v0.2.10 dual-leg WS image on cc.thkl.site only."""
+"""Deploy or roll back the v0.2.8-beta1 dual-leg WS image on cc.thkl.site only."""
 
 import argparse
 import fcntl
@@ -23,7 +23,7 @@ BASE_CONFIG_ID = 'sha256:073695e28cbd4cb49b29027ca243dfb2cf43eec5ceaa4ef65745b9d
 BASE_BINARY_SHA256 = '5bbe2adc847b372265f44c5eef53d3d6b609d87d339c734963432ee7f6f4110a'
 BASE_IDS = {BASE_ID, BASE_CONFIG_ID}
 ADDITIVE_MIGRATION = '242_usage_log_ingress_transport.sql'
-POINTER = DEPLOY / '.dual-leg-thinking-ws-v0210-backup-path'
+POINTER = DEPLOY / '.dual-leg-thinking-ws-v028-beta1-backup-path'
 
 
 def run(args, *, output=None, input_text=None):
@@ -233,7 +233,7 @@ def deploy(manifest):
                                         '--entrypoint', '/app/sub2api', manifest['image'], '--version')
     assert not POINTER.exists(), '已有该发布的回滚记录，拒绝覆盖'
     stamp = time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:6]
-    backup = DEPLOY / 'backups' / ('dual-leg-thinking-ws-v0210-' + stamp)
+    backup = DEPLOY / 'backups' / ('dual-leg-thinking-ws-v028-beta1-' + stamp)
     backup.mkdir(parents=True, mode=0o700)
     for name in ('.env', 'docker-compose.yml', 'docker-compose.host-access.yml'):
         shutil.copy2(DEPLOY / name, backup / name)
@@ -268,7 +268,7 @@ def deploy(manifest):
 def rollback(manifest):
     verify_package(manifest)
     backup = Path(POINTER.read_text().strip()).resolve()
-    assert backup.parent == DEPLOY / 'backups' and backup.name.startswith('dual-leg-thinking-ws-v0210-'), '回滚路径不合法'
+    assert backup.parent == DEPLOY / 'backups' and backup.name.startswith('dual-leg-thinking-ws-v028-beta1-'), '回滚路径不合法'
     assert compose_image() in (manifest['image'], BASE_IMAGE), '当前 Compose 版本不属于此发布'
     current = current_container()
     image = current['Config']['Image']
@@ -291,7 +291,7 @@ def main():
     assert os.geteuid() == 0, '需要在备用机使用 sudo 运行'
     os.umask(0o077)
     manifest = json.loads((HERE / 'manifest.json').read_text())
-    with (DEPLOY / '.sub2api-release.lock').open('a') as global_lock, (DEPLOY / '.traffic-trend-v029.lock').open('a') as baseline_lock, (DEPLOY / '.dual-leg-thinking-ws-v0210.lock').open('a') as lock:
+    with (DEPLOY / '.sub2api-release.lock').open('a') as global_lock, (DEPLOY / '.traffic-trend-v029.lock').open('a') as baseline_lock, (DEPLOY / '.dual-leg-thinking-ws-v028-beta1.lock').open('a') as lock:
         fcntl.flock(global_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         fcntl.flock(baseline_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

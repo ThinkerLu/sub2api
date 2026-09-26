@@ -1,6 +1,6 @@
 # WS 严格响应归属与一次性迁移状态
 
-目标版本：`v0.2.10-dual-leg-thinking-ws`（待发布）。关联开发分支 `codex/dual-leg-thinking-ws-cc` 的 `feat(ws): persist strict response owners and one-shot migration intents` 提交。
+目标版本：`v0.2.8-beta1-dual-leg-thinking-ws`（待发布）。关联开发分支 `codex/dual-leg-thinking-ws-cc` 的 `feat(ws): persist strict response owners and one-shot migration intents` 提交。
 
 ## 目的与使用
 

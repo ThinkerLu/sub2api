@@ -1,6 +1,6 @@
 # WS 切模型的受控全量重连
 
-目标版本：`v0.2.10-dual-leg-thinking-ws`（待发布）。关联分支提交 `feat(ws): recover model switches through one-shot full-context retries`。
+目标版本：`v0.2.8-beta1-dual-leg-thinking-ws`（待发布）。关联分支提交 `feat(ws): recover model switches through one-shot full-context retries`。
 
 ## 使用与范围
 

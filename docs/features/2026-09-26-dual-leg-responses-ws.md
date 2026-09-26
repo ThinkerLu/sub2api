@@ -1,6 +1,6 @@
 # Responses WS 逐轮双链路与共享内存准入
 
-目标版本：`v0.2.10-dual-leg-thinking-ws`（待发布）。开发基线为 `326a74ac3`，关联本分支 `feat(ws): route adaptive turns with bounded shared reservations` 提交。
+目标版本：`v0.2.8-beta1-dual-leg-thinking-ws`（待发布）。开发基线为 `326a74ac3`，关联本分支 `feat(ws): route adaptive turns with bounded shared reservations` 提交。
 
 ## 目的和使用
 
