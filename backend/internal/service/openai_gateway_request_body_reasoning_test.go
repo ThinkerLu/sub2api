@@ -427,3 +427,42 @@ func TestNormalizeOpenAIResponsesWebSocketCompatibilityBodyStripsReasoningConten
 	require.False(t, changed)
 	require.JSONEq(t, string(body), string(normalized))
 }
+
+func TestNormalizeOpenAIResponsesReasoningForFinalModel(t *testing.T) {
+	input := []byte(`{"type":"response.create","model":"client-alias","input":[{"type":"reasoning","content":[{"type":"reasoning_text","text":"retain for target"}]}]}`)
+	for _, tc := range []struct {
+		name    string
+		target  string
+		removed bool
+	}{
+		{"deepseek", "deepseek-v4-pro", false},
+		{"kimi", "kimi-k3", false},
+		{"gpt", "gpt-5.6-sol", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				Credentials: map[string]any{"model_mapping": map[string]any{"client-alias": tc.target}}}
+			out, changed, err := normalizeOpenAIResponsesReasoningForAccount(input, account)
+			require.NoError(t, err)
+			require.Equal(t, tc.removed, changed)
+			require.Equal(t, !tc.removed, gjson.GetBytes(out, "input.0.content.0.text").Exists())
+			second, changedAgain, err := normalizeOpenAIResponsesReasoningForAccount(out, account)
+			require.NoError(t, err)
+			require.False(t, changedAgain)
+			require.Equal(t, string(out), string(second))
+		})
+	}
+}
+
+func TestOpenAICompatibilityPreservesPassbackReasoningWithStoreFalse(t *testing.T) {
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"model_mapping": map[string]any{"alias": "deepseek-v4-pro"}}}
+	body := []byte(`{"type":"response.create","model":"alias","store":false,"input":[{"type":"reasoning","content":[{"type":"reasoning_text","text":"keep"}]}]}`)
+	out, _, err := normalizeOpenAIResponsesWebSocketCompatibilityBody(body, account, false)
+	require.NoError(t, err)
+	require.Equal(t, "keep", gjson.GetBytes(out, "input.0.content.0.text").String())
+	filtered, changed, err := normalizeOpenAIStoreFalseReasoningForAccount(body, account, false)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Equal(t, string(body), string(filtered))
+}

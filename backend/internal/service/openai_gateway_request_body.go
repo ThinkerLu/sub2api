@@ -728,6 +728,26 @@ func normalizeOpenAIResponsesReasoningContentReplay(body []byte) ([]byte, bool, 
 	return normalized, true, nil
 }
 
+// Account mappings are evaluated before deciding whether a destination needs
+// visible reasoning replay. Keep the source body intact for other attempts.
+func normalizeOpenAIResponsesReasoningForAccount(body []byte, account *Account) ([]byte, bool, error) {
+	if account == nil || !account.IsOpenAI() {
+		return body, false, nil
+	}
+	model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	if ResolveThinkingProtocol(account.GetMappedModel(model)) == ThinkingProtocolPassbackRequired {
+		return body, false, nil
+	}
+	return normalizeOpenAIResponsesReasoningContentReplay(body)
+}
+
+func normalizeOpenAIStoreFalseReasoningForAccount(body []byte, account *Account, knownStoreFalse bool) ([]byte, bool, error) {
+	if account != nil && ResolveThinkingProtocol(account.GetMappedModel(strings.TrimSpace(gjson.GetBytes(body, "model").String()))) == ThinkingProtocolPassbackRequired {
+		return body, false, nil
+	}
+	return normalizeOpenAIAPIKeyStoreFalseReasoningReplay(body, knownStoreFalse)
+}
+
 func normalizeOpenAIAPIKeyStoreFalseReasoningReplay(body []byte, knownStoreFalse bool) ([]byte, bool, error) {
 	if !knownStoreFalse && gjson.GetBytes(body, "store").Type != gjson.False {
 		return body, false, nil
@@ -1443,7 +1463,7 @@ func normalizeOpenAIResponsesWebSocketCompatibilityBody(body []byte, account *Ac
 			return body, false, err
 		}
 	}
-	if next, normalizedReasoningContent, err := normalizeOpenAIResponsesReasoningContentReplay(normalized); err != nil {
+	if next, normalizedReasoningContent, err := normalizeOpenAIResponsesReasoningForAccount(normalized, account); err != nil {
 		return body, false, err
 	} else if normalizedReasoningContent {
 		normalized = next
@@ -1456,7 +1476,7 @@ func normalizeOpenAIResponsesWebSocketCompatibilityBody(body []byte, account *Ac
 			normalized = next
 			changed = true
 		}
-		if next, normalizedReasoning, err := normalizeOpenAIAPIKeyStoreFalseReasoningReplay(normalized, false); err != nil {
+		if next, normalizedReasoning, err := normalizeOpenAIStoreFalseReasoningForAccount(normalized, account, false); err != nil {
 			return body, false, err
 		} else if normalizedReasoning {
 			normalized = next
