@@ -8,3 +8,5 @@
 - 验证：运行 `go test ./internal/service -run 'TestGPTThresholdRoutingUsesFinalModelAndLargestPayload|TestOpenAIWSPassthroughFirstMessageBridgeDecision|TestAdaptiveThresholdBoundary' -count=1`、`go test ./internal/config -run '^TestLoadDefaultOpenAIWSConfig$' -count=1`，以及完整 service 测试。上线前还需对压缩帧、replay 大于首帧和目标账号协议逐项做 fake upstream 测试及内存压测。
 - 发布/回滚：目标版本暂定 `v0.2.10-dual-leg-thinking-ws`；该阶段不单独发布。回滚可关闭配置，完整发布需从干净发布分支构建并提供备用机基线匹配的回滚镜像。
 - 关联提交：`codex/dual-leg-thinking-ws-cc` 的 `feat(ws): gate GPT-sized bridge routing by final model`。
+
+关联实现提交：`3708a9dc8`、`d9414e956`、`89c098eb6`。

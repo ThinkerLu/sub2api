@@ -9,3 +9,5 @@
 - 验证：运行 `go test ./internal/service -run 'TestNormalizeOpenAIResponsesReasoningForFinalModel|TestOpenAICompatibilityPreservesPassbackReasoningWithStoreFalse|TestAdaptiveChannelMappedPassbackReasoning|TestPassthroughLifecycle_LaterTurnChannelMappedPassbackReasoning' -count=1`，并运行完整 service 测试。fake upstream 已核对渠道别名映射后的 HTTP bridge 和 passthrough 第二轮发包；真实第三方多轮与缓存前缀仍需灰度验证。
 - 发布/回滚：目标版本暂定 `v0.2.10-dual-leg-thinking-ws`；仅在整体双链路与迁移验收通过后从发布分支打包。回滚应用镜像即可恢复旧归一化行为，无数据迁移；切回旧行为可能再次丢失第三方思考正文。
 - 关联提交：`25958bbbb`（目标模型归一化）、`codex/dual-leg-thinking-ws-cc` 后续 WS 渠道映射顺序修复提交；合入发布分支时保留对应提交记录。
+
+关联实现提交：`25958bbbb`、`0a031713f`、`34377b6ba`、`89c098eb6`。
