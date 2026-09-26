@@ -20,6 +20,7 @@ import (
 
 // OpenAIRecordUsageInput input for recording usage
 type OpenAIRecordUsageInput struct {
+	IngressTransport   int16
 	Result             *OpenAIForwardResult
 	APIKey             *APIKey
 	User               *User
@@ -434,6 +435,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	usageLog.AccountRateMultiplier = &accountRateMultiplier
 	usageLog.BillingType = billingType
 	usageLog.Stream = result.Stream
+	usageLog.IngressTransport = input.IngressTransport
 	usageLog.UpstreamTransport = UsageUpstreamTransportHTTP
 	if result.OpenAIWSMode && !result.OpenAIWSHTTPBridge {
 		usageLog.UpstreamTransport = UsageUpstreamTransportWebSocket

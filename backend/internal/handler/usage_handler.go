@@ -136,6 +136,15 @@ func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) 
 		nativeCompactionV2 = &value
 	}
 	var upstreamTransport *int16
+	var ingressTransport *int16
+	if raw := strings.TrimSpace(c.Query("ingress_transport")); raw != "" {
+		value, err := service.ParseUsageIngressTransport(raw)
+		if err != nil {
+			response.BadRequest(c, "Invalid ingress_transport value, use 0, 1 or 2")
+			return nil, false
+		}
+		ingressTransport = &value
+	}
 	if raw := strings.TrimSpace(c.Query("upstream_transport")); raw != "" {
 		value, err := service.ParseUsageUpstreamTransport(raw)
 		if err != nil {
@@ -223,6 +232,7 @@ func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) 
 			Stream:             stream,
 			NativeCompactionV2: nativeCompactionV2,
 			UpstreamTransport:  upstreamTransport,
+			IngressTransport:   ingressTransport,
 			BillingType:        billingType,
 			BillingMode:        billingMode,
 			StartTime:          startPtr,

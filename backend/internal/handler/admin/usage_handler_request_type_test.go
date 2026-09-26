@@ -237,3 +237,25 @@ func TestAdminUsageUpstreamTransportFilter(t *testing.T) {
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/usage?upstream_transport=6", nil))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestAdminUsageHTTPToWSFilterUsesBothTransportColumns(t *testing.T) {
+	repo := &adminUsageRepoCapture{}
+	router := newAdminUsageRequestTypeTestRouter(repo)
+	for _, endpoint := range []string{"/admin/usage", "/admin/usage/stats"} {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, endpoint+"?ingress_transport=1&upstream_transport=2&nocache=1", nil))
+		require.Equal(t, http.StatusOK, rec.Code)
+		filters := repo.listFilters
+		if endpoint == "/admin/usage/stats" {
+			filters = repo.statsFilters
+		}
+		require.NotNil(t, filters.IngressTransport)
+		require.EqualValues(t, 1, *filters.IngressTransport)
+		require.NotNil(t, filters.UpstreamTransport)
+		require.EqualValues(t, 2, *filters.UpstreamTransport)
+		require.Nil(t, filters.RequestType)
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/usage?ingress_transport=3", nil))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}

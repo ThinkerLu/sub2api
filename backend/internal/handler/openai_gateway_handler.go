@@ -821,6 +821,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			cyberBlocked := service.GetOpsCyberPolicy(c) != nil
 			h.submitOpenAIUsageRecordTask(c.Request.Context(), res, func(ctx context.Context) {
 				if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
+					IngressTransport:   service.UsageIngressTransportHTTP,
 					Result:             res,
 					APIKey:             apiKey,
 					User:               apiKey.User,
@@ -1403,6 +1404,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			cyberBlocked := service.GetOpsCyberPolicy(c) != nil
 			h.submitOpenAIUsageRecordTask(c.Request.Context(), res, func(ctx context.Context) {
 				if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
+					IngressTransport:   service.UsageIngressTransportHTTP,
 					Result:             res,
 					APIKey:             apiKey,
 					User:               apiKey.User,
@@ -3143,6 +3145,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				cyberBlocked := service.GetOpsCyberPolicy(c) != nil
 				h.submitOpenAIUsageRecordTask(ctx, result, func(taskCtx context.Context) {
 					if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
+						IngressTransport:   service.UsageIngressTransportWebSocket,
 						Result:             result,
 						APIKey:             apiKey,
 						User:               apiKey.User,

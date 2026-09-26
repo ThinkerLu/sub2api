@@ -1731,7 +1731,7 @@ export interface CodexSessionImportResult {
 
 export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription' | 'invitation'
 // ws_http is a derived UI filter/label; the API stores ws_v2 plus upstream_transport=1.
-export type UsageRequestType = 'unknown' | 'sync' | 'stream' | 'ws_v2' | 'ws_http' | 'cyber' | 'live'
+export type UsageRequestType = 'unknown' | 'sync' | 'stream' | 'ws_v2' | 'ws_http' | 'http_ws' | 'cyber' | 'live'
 export type ImageSizeSource = 'output' | 'input' | 'default' | 'legacy'
 export type ImageSizeBreakdown = Record<string, number>
 
@@ -1770,6 +1770,7 @@ export interface UsageLog {
   request_type?: UsageRequestType
   stream: boolean
   upstream_transport?: number
+  ingress_transport?: number
   openai_ws_mode?: boolean
   native_compaction_v2: boolean
   duration_ms: number | null

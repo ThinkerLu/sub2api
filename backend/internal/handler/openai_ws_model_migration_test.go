@@ -121,5 +121,7 @@ func TestWSModelMigrationHandlerFreezesTargetAndSuppressesDuplicate(t *testing.T
 	for _, accountID := range []int64{old.ID, target.ID, old.ID} {
 		usage := <-h.usageRepo.created
 		require.Equal(t, accountID, usage.AccountID)
+		require.Equal(t, service.UsageIngressTransportWebSocket, usage.IngressTransport)
+		require.Equal(t, service.UsageUpstreamTransportWebSocket, usage.UpstreamTransport)
 	}
 }

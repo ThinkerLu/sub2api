@@ -46,6 +46,7 @@ type dashboardSnapshotV2Filters struct {
 	Stream                *bool
 	NativeCompactionV2    *bool
 	UpstreamTransport     *int16
+	IngressTransport      *int16
 	BillingType           *int8
 	UpstreamModelMismatch *bool
 }
@@ -63,6 +64,7 @@ type dashboardSnapshotV2CacheKey struct {
 	Stream                *bool  `json:"stream"`
 	NativeCompactionV2    *bool  `json:"native_compaction_v2"`
 	UpstreamTransport     *int16 `json:"upstream_transport"`
+	IngressTransport      *int16 `json:"ingress_transport"`
 	BillingType           *int8  `json:"billing_type"`
 	UpstreamModelMismatch *bool  `json:"upstream_model_mismatch"`
 	IncludeStats          bool   `json:"include_stats"`
@@ -111,6 +113,7 @@ func (h *DashboardHandler) GetSnapshotV2(c *gin.Context) {
 		Stream:                filters.Stream,
 		NativeCompactionV2:    filters.NativeCompactionV2,
 		UpstreamTransport:     filters.UpstreamTransport,
+		IngressTransport:      filters.IngressTransport,
 		BillingType:           filters.BillingType,
 		UpstreamModelMismatch: filters.UpstreamModelMismatch,
 		IncludeStats:          includeStats,
@@ -196,6 +199,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.BillingType,
 			filters.UpstreamModelMismatch,
 			filters.UpstreamTransport,
+			filters.IngressTransport,
 		)
 		if err != nil {
 			return nil, errors.New("failed to get usage trend")
@@ -219,6 +223,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.BillingType,
 			filters.UpstreamModelMismatch,
 			filters.UpstreamTransport,
+			filters.IngressTransport,
 		)
 		if err != nil {
 			return nil, errors.New("failed to get model statistics")
@@ -241,6 +246,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.BillingType,
 			filters.UpstreamModelMismatch,
 			filters.UpstreamTransport,
+			filters.IngressTransport,
 		)
 		if err != nil {
 			return nil, errors.New("failed to get group statistics")
@@ -314,6 +320,13 @@ func parseDashboardSnapshotV2Filters(c *gin.Context) (*dashboardSnapshotV2Filter
 			return nil, err
 		}
 		filters.UpstreamTransport = &value
+	}
+	if raw := strings.TrimSpace(c.Query("ingress_transport")); raw != "" {
+		value, err := service.ParseUsageIngressTransport(raw)
+		if err != nil {
+			return nil, err
+		}
+		filters.IngressTransport = &value
 	}
 	if nativeCompactionV2Str := strings.TrimSpace(c.Query("native_compaction_v2")); nativeCompactionV2Str != "" {
 		value, err := strconv.ParseBool(nativeCompactionV2Str)

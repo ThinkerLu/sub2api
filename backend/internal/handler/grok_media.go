@@ -747,6 +747,7 @@ func recordGrokMediaUsage(
 	}
 	h.submitOpenAIUsageRecordTask(c.Request.Context(), result, func(ctx context.Context) {
 		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
+			IngressTransport:   service.UsageIngressTransportHTTP,
 			Result:             result,
 			APIKey:             apiKey,
 			User:               apiKey.User,

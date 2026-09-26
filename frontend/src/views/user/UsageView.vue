@@ -385,6 +385,7 @@ const requestTypeOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('admin.usage.allTypes') },
   { value: 'ws_v2', label: t('usage.ws') },
   { value: 'ws_http', label: t('usage.wsHttp') },
+  { value: 'http_ws', label: t('usage.httpWs') },
   { value: 'live', label: t('usage.live') },
   { value: 'stream', label: t('usage.stream') },
   { value: 'sync', label: t('usage.sync') },
@@ -614,6 +615,7 @@ const getRequestTypeExportText = (log: UsageLog): string => {
   if (requestType === 'cyber') return 'Cyber'
   if (requestType === 'live') return 'Live'
   if (requestType === 'ws_http') return 'WS → HTTP'
+  if (requestType === 'http_ws') return 'HTTP → WS'
   if (requestType === 'ws_v2') return 'WS'
   if (requestType === 'stream') return 'Stream'
   if (requestType === 'sync') return 'Sync'

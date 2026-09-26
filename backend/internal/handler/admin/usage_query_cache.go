@@ -23,6 +23,7 @@ type usageStatsCacheKeyData struct {
 	Stream                *bool  `json:"stream"`
 	NativeCompactionV2    *bool  `json:"native_compaction_v2"`
 	UpstreamTransport     *int16 `json:"upstream_transport"`
+	IngressTransport      *int16 `json:"ingress_transport"`
 	BillingType           *int8  `json:"billing_type"`
 	UpstreamModelMismatch *bool  `json:"upstream_model_mismatch"`
 }
@@ -49,6 +50,7 @@ func usageStatsCacheKey(filters usagestats.UsageLogFilters) string {
 		Stream:                filters.Stream,
 		NativeCompactionV2:    filters.NativeCompactionV2,
 		UpstreamTransport:     filters.UpstreamTransport,
+		IngressTransport:      filters.IngressTransport,
 		BillingType:           filters.BillingType,
 		UpstreamModelMismatch: filters.UpstreamModelMismatch,
 	})

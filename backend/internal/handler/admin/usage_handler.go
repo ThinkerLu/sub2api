@@ -143,6 +143,11 @@ func (h *UsageHandler) List(c *gin.Context) {
 		response.BadRequest(c, "Invalid upstream_transport value, use 0, 1 or 2")
 		return
 	}
+	ingressTransport, err := parseOptionalIngressTransportFilter(c)
+	if err != nil {
+		response.BadRequest(c, "Invalid ingress_transport value, use 0, 1 or 2")
+		return
+	}
 
 	var billingType *int8
 	if billingTypeStr := c.Query("billing_type"); billingTypeStr != "" {
@@ -207,6 +212,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 		Stream:                stream,
 		NativeCompactionV2:    nativeCompactionV2,
 		UpstreamTransport:     upstreamTransport,
+		IngressTransport:      ingressTransport,
 		BillingType:           billingType,
 		BillingMode:           billingMode,
 		UpstreamModelMismatch: upstreamModelMismatch,
@@ -301,6 +307,11 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 		response.BadRequest(c, "Invalid upstream_transport value, use 0, 1 or 2")
 		return
 	}
+	ingressTransport, err := parseOptionalIngressTransportFilter(c)
+	if err != nil {
+		response.BadRequest(c, "Invalid ingress_transport value, use 0, 1 or 2")
+		return
+	}
 
 	var billingType *int8
 	if billingTypeStr := c.Query("billing_type"); billingTypeStr != "" {
@@ -372,6 +383,7 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 		Stream:                stream,
 		NativeCompactionV2:    nativeCompactionV2,
 		UpstreamTransport:     upstreamTransport,
+		IngressTransport:      ingressTransport,
 		BillingType:           billingType,
 		BillingMode:           billingMode,
 		UpstreamModelMismatch: upstreamModelMismatch,
@@ -673,4 +685,16 @@ func parseOptionalUpstreamTransportFilter(c *gin.Context) (*int16, error) {
 		return nil, err
 	}
 	return &v, nil
+}
+
+func parseOptionalIngressTransportFilter(c *gin.Context) (*int16, error) {
+	raw := strings.TrimSpace(c.Query("ingress_transport"))
+	if raw == "" {
+		return nil, nil
+	}
+	value, err := service.ParseUsageIngressTransport(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
 }

@@ -629,6 +629,7 @@ type UsageLog struct {
 	Stream            bool   `json:"stream"`
 	OpenAIWSMode      bool   `json:"openai_ws_mode"`
 	UpstreamTransport int16  `json:"upstream_transport"`
+	IngressTransport  int16  `json:"ingress_transport"`
 	// NativeCompactionV2 is true only for requests positively identified at
 	// runtime as the native OpenAI remote compaction v2 wire.
 	NativeCompactionV2 bool `json:"native_compaction_v2"`

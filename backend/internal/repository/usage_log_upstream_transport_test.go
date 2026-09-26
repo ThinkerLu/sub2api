@@ -11,8 +11,8 @@ func TestUsageLogUpstreamTransportIsIndependentOfRequestType(t *testing.T) {
 		log := &service.UsageLog{RequestType: service.RequestTypeWSV2, UpstreamTransport: transport}
 		prepared := prepareUsageLogInsert(log)
 		require.Equal(t, int16(service.RequestTypeWSV2), prepared.args[30])
-		require.Equal(t, transport, prepared.args[len(prepared.args)-2])
-		require.Equal(t, "smallint", usageLogInsertArgTypes[len(usageLogInsertArgTypes)-2])
+		require.Equal(t, transport, prepared.args[len(prepared.args)-3])
+		require.Equal(t, "smallint", usageLogInsertArgTypes[len(usageLogInsertArgTypes)-3])
 		require.Equal(t, service.RequestTypeWSV2, log.RequestType)
 		require.True(t, log.OpenAIWSMode)
 	}

@@ -30,6 +30,7 @@ type dashboardTrendCacheKey struct {
 	Stream                *bool  `json:"stream"`
 	NativeCompactionV2    *bool  `json:"native_compaction_v2"`
 	UpstreamTransport     *int16 `json:"upstream_transport"`
+	IngressTransport      *int16 `json:"ingress_transport"`
 	BillingType           *int8  `json:"billing_type"`
 	UpstreamModelMismatch *bool  `json:"upstream_model_mismatch"`
 }
@@ -46,6 +47,7 @@ type dashboardModelGroupCacheKey struct {
 	Stream                *bool  `json:"stream"`
 	NativeCompactionV2    *bool  `json:"native_compaction_v2"`
 	UpstreamTransport     *int16 `json:"upstream_transport"`
+	IngressTransport      *int16 `json:"ingress_transport"`
 	BillingType           *int8  `json:"billing_type"`
 	UpstreamModelMismatch *bool  `json:"upstream_model_mismatch"`
 }
@@ -105,14 +107,14 @@ func (h *DashboardHandler) getUsageTrendCached(
 		Model:              model,
 		RequestType:        requestType,
 		Stream:             stream,
-		NativeCompactionV2: nativeCompactionV2, UpstreamTransport: optionalUpstreamTransport(upstreamTransport),
+		NativeCompactionV2: nativeCompactionV2, UpstreamTransport: optionalUpstreamTransport(upstreamTransport), IngressTransport: optionalIngressTransport(upstreamTransport),
 		BillingType:           billingType,
 		UpstreamModelMismatch: upstreamModelMismatch,
 	})
 	entry, hit, err := dashboardTrendCache.GetOrLoad(key, func() (any, error) {
 		return h.dashboardService.GetUsageTrendWithUsageFilters(ctx, startTime, endTime, granularity, usagestats.UsageLogFilters{
 			UserID: userID, APIKeyID: apiKeyID, AccountID: accountID, GroupID: groupID,
-			Model: model, RequestType: requestType, Stream: stream, NativeCompactionV2: nativeCompactionV2, UpstreamTransport: optionalUpstreamTransport(upstreamTransport), BillingType: billingType,
+			Model: model, RequestType: requestType, Stream: stream, NativeCompactionV2: nativeCompactionV2, UpstreamTransport: optionalUpstreamTransport(upstreamTransport), IngressTransport: optionalIngressTransport(upstreamTransport), BillingType: billingType,
 			UpstreamModelMismatch: upstreamModelMismatch,
 		})
 	})
@@ -145,14 +147,14 @@ func (h *DashboardHandler) getModelStatsCached(
 		ModelSource:        usagestats.NormalizeModelSource(modelSource),
 		RequestType:        requestType,
 		Stream:             stream,
-		NativeCompactionV2: nativeCompactionV2, UpstreamTransport: optionalUpstreamTransport(upstreamTransport),
+		NativeCompactionV2: nativeCompactionV2, UpstreamTransport: optionalUpstreamTransport(upstreamTransport), IngressTransport: optionalIngressTransport(upstreamTransport),
 		BillingType:           billingType,
 		UpstreamModelMismatch: upstreamModelMismatch,
 	})
 	entry, hit, err := dashboardModelStatsCache.GetOrLoad(key, func() (any, error) {
 		return h.dashboardService.GetModelStatsWithUsageFiltersBySource(ctx, startTime, endTime, usagestats.UsageLogFilters{
 			UserID: userID, APIKeyID: apiKeyID, AccountID: accountID, GroupID: groupID,
-			RequestType: requestType, Stream: stream, NativeCompactionV2: nativeCompactionV2, UpstreamTransport: optionalUpstreamTransport(upstreamTransport), BillingType: billingType,
+			RequestType: requestType, Stream: stream, NativeCompactionV2: nativeCompactionV2, UpstreamTransport: optionalUpstreamTransport(upstreamTransport), IngressTransport: optionalIngressTransport(upstreamTransport), BillingType: billingType,
 			UpstreamModelMismatch: upstreamModelMismatch,
 		}, modelSource)
 	})
@@ -183,14 +185,14 @@ func (h *DashboardHandler) getGroupStatsCached(
 		GroupID:            groupID,
 		RequestType:        requestType,
 		Stream:             stream,
-		NativeCompactionV2: nativeCompactionV2, UpstreamTransport: optionalUpstreamTransport(upstreamTransport),
+		NativeCompactionV2: nativeCompactionV2, UpstreamTransport: optionalUpstreamTransport(upstreamTransport), IngressTransport: optionalIngressTransport(upstreamTransport),
 		BillingType:           billingType,
 		UpstreamModelMismatch: upstreamModelMismatch,
 	})
 	entry, hit, err := dashboardGroupStatsCache.GetOrLoad(key, func() (any, error) {
 		return h.dashboardService.GetGroupStatsWithUsageFilters(ctx, startTime, endTime, usagestats.UsageLogFilters{
 			UserID: userID, APIKeyID: apiKeyID, AccountID: accountID, GroupID: groupID,
-			RequestType: requestType, Stream: stream, NativeCompactionV2: nativeCompactionV2, UpstreamTransport: optionalUpstreamTransport(upstreamTransport), BillingType: billingType,
+			RequestType: requestType, Stream: stream, NativeCompactionV2: nativeCompactionV2, UpstreamTransport: optionalUpstreamTransport(upstreamTransport), IngressTransport: optionalIngressTransport(upstreamTransport), BillingType: billingType,
 			UpstreamModelMismatch: upstreamModelMismatch,
 		})
 	})
@@ -238,6 +240,13 @@ func (h *DashboardHandler) getUserUsageTrendCached(ctx context.Context, startTim
 func optionalUpstreamTransport(values []*int16) *int16 {
 	if len(values) > 0 {
 		return values[0]
+	}
+	return nil
+}
+
+func optionalIngressTransport(values []*int16) *int16 {
+	if len(values) > 1 {
+		return values[1]
 	}
 	return nil
 }
