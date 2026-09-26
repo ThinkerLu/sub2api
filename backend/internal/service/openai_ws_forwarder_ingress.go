@@ -133,7 +133,32 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 			if wsDecision.Transport != OpenAIUpstreamTransportResponsesWebsocketV2 {
 				return fmt.Errorf("websocket ingress requires ws_v2 transport, got=%s", wsDecision.Transport)
 			}
-			if s.shouldBridgeOpenAIWSPassthroughFirstMessage(account, firstClientMessage) {
+			firstModel := strings.TrimSpace(gjson.GetBytes(firstClientMessage, "model").String())
+			if firstModel == "" && hooks != nil {
+				firstModel = strings.TrimSpace(hooks.InitialRequestModel)
+			}
+			if s.cfg.Gateway.OpenAIWS.GPTThresholdRoutingEnabled && hooks != nil && hooks.MapRequestModel != nil {
+				originalMap := hooks.MapRequestModel
+				mapped, mapErr := originalMap(1, firstModel)
+				if mapErr != nil {
+					return mapErr
+				}
+				cachedModel := firstModel
+				if strings.TrimSpace(mapped) != "" {
+					cachedModel = strings.TrimSpace(mapped)
+				}
+				copied := *hooks
+				copied.MapRequestModel = func(turn int, originalModel string) (string, error) {
+					if turn == 1 && originalModel == firstModel {
+						return cachedModel, nil
+					}
+					return originalMap(turn, originalModel)
+				}
+				hooks = &copied
+				firstModel = cachedModel
+			}
+			firstModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(firstModel))
+			if s.shouldBridgeOpenAIWSPassthroughFirstMessage(account, firstClientMessage, firstModel) {
 				forceHTTPBridge = true
 				break
 			}
@@ -539,7 +564,12 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 		return err
 	}
 
-	useHTTPBridge := forceHTTPBridge || s.shouldBridgeOpenAIWSHTTP(account, firstPayload.payloadBytes, firstPayload.previousResponseID)
+	firstRouteModel := strings.TrimSpace(gjson.GetBytes(firstPayload.payloadRaw, "model").String())
+	firstRouteBytes := firstPayload.payloadBytes
+	if s.cfg != nil && s.cfg.Gateway.OpenAIWS.GPTThresholdRoutingEnabled {
+		firstRouteBytes = max(firstRouteBytes, len(firstPayload.rawForHash))
+	}
+	useHTTPBridge := forceHTTPBridge || s.shouldBridgeOpenAIWSHTTP(account, firstRouteBytes, firstPayload.previousResponseID, firstRouteModel)
 	turnState := strings.TrimSpace(c.GetHeader(openAIWSTurnStateHeader))
 	stateStore := s.getOpenAIWSStateStore()
 	groupID := getOpenAIGroupIDFromContext(c)
@@ -705,7 +735,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 				if hooks != nil && hooks.adaptiveUpstream != nil && hooks.adaptiveUpstream.conn != nil && (!needsBridgeReplay || currentBridgePayload.previousResponseID != "") {
 					wsPayload = currentBridgePayload.payloadRaw
 				}
-				fitsWS := int64(len(candidate)) < s.openAIWSHTTPBridgeThresholdBytes() && int64(len(wsPayload)) < s.openAIWSHTTPBridgeThresholdBytes()
+				finalModel := strings.TrimSpace(gjson.GetBytes(currentBridgePayload.payloadRaw, "model").String())
+				if finalModel == "" {
+					finalModel = strings.TrimSpace(gjson.GetBytes(wsPayload, "model").String())
+				}
+				fitsWS := !s.openAIWSRouteExceedsThreshold(finalModel, len(candidate), len(wsPayload), len(currentBridgePayload.rawForHash))
 				if warmup {
 					if !fitsWS {
 						return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "adaptive warmup exceeds WS threshold; send a full generating request", nil)

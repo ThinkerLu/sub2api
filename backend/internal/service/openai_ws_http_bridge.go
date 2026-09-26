@@ -118,7 +118,33 @@ func (s *OpenAIGatewayService) openAIWSHTTPBridgeThresholdBytes() int64 {
 	return s.cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes
 }
 
-func (s *OpenAIGatewayService) shouldBridgeOpenAIWSHTTP(account *Account, payloadBytes int, previousResponseID string) bool {
+// Keep this list explicit: a third-party model with a GPT-looking name must
+// not silently inherit the route threshold without a verified profile.
+var openAIWSGPTThresholdModels = map[string]struct{}{
+	"gpt-4o": {}, "gpt-4o-mini": {}, "gpt-4.1": {}, "gpt-4.1-mini": {},
+	"gpt-4.1-nano": {}, "gpt-4.5": {}, "gpt-5": {}, "gpt-5.1": {},
+	"gpt-5.2": {}, "gpt-5.3": {}, "gpt-5.3-codex": {}, "gpt-5.3-codex-spark": {},
+	"gpt-5.4": {}, "gpt-5.4-mini": {}, "gpt-5.4-nano": {}, "gpt-5.5": {},
+	"gpt-5.5-pro": {}, "gpt-5.6-sol": {}, "gpt-5.6-terra": {}, "gpt-5.6-luna": {},
+	"gpt-6-astra": {}, "gpt-6-sol": {}, "gpt-6-luna": {},
+}
+
+func (s *OpenAIGatewayService) openAIWSRouteExceedsThreshold(finalModel string, sizes ...int) bool {
+	if s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIWS.GPTThresholdRoutingEnabled {
+		if _, known := openAIWSGPTThresholdModels[strings.ToLower(strings.TrimSpace(finalModel))]; !known {
+			return false
+		}
+	}
+	threshold := s.openAIWSHTTPBridgeThresholdBytes()
+	for _, size := range sizes {
+		if threshold > 0 && int64(size) >= threshold {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *OpenAIGatewayService) shouldBridgeOpenAIWSHTTP(account *Account, payloadBytes int, previousResponseID string, finalModel ...string) bool {
 	if account != nil && account.Platform == PlatformGrok {
 		return true
 	}
@@ -128,15 +154,28 @@ func (s *OpenAIGatewayService) shouldBridgeOpenAIWSHTTP(account *Account, payloa
 	if strings.TrimSpace(previousResponseID) != "" {
 		return false
 	}
-	threshold := s.openAIWSHTTPBridgeThresholdBytes()
-	return threshold > 0 && int64(payloadBytes) >= threshold
+	model := ""
+	if len(finalModel) > 0 {
+		model = finalModel[0]
+	}
+	return s.openAIWSRouteExceedsThreshold(model, payloadBytes)
 }
 
-func (s *OpenAIGatewayService) shouldBridgeOpenAIWSPassthroughFirstMessage(account *Account, payload []byte) bool {
+func (s *OpenAIGatewayService) shouldBridgeOpenAIWSPassthroughFirstMessage(account *Account, payload []byte, finalModel ...string) bool {
 	if account != nil && account.Platform == PlatformGrok {
 		return true
 	}
-	if !s.openAIWSHTTPBridgeEnabled() || int64(len(payload)) < s.openAIWSHTTPBridgeThresholdBytes() {
+	if !s.openAIWSHTTPBridgeEnabled() {
+		return false
+	}
+	model := strings.TrimSpace(gjson.GetBytes(payload, "model").String())
+	if account != nil {
+		model = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(model))
+	}
+	if len(finalModel) > 0 {
+		model = finalModel[0]
+	}
+	if !s.openAIWSRouteExceedsThreshold(model, len(payload)) {
 		return false
 	}
 	if !json.Valid(payload) {
