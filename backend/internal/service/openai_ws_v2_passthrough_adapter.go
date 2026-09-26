@@ -954,6 +954,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		retained = hooks.adaptiveUpstream
 	}
 	reused := retained != nil && retained.conn != nil
+	if reused {
+		if conn, ok := retained.conn.(*openAIWSAdaptiveRetainedConn); ok && conn.reuseError() != nil {
+			retained.close()
+			logOpenAIWSModeInfo("ingress_ws_adaptive_reconnect account_id=%d reason=idle_upstream_closed_not_sent", account.ID)
+			return errOpenAIWSAdaptiveReplayRequired
+		}
+	}
 	fingerprint := openAIWSHandshakeFingerprint(wsURL, proxyURL, capturedSessionModel, gjson.GetBytes(firstClientMessage, "service_tier").String(), headers)
 	if reused && openAIWSCommitFromContext(ctx) != nil && retained.handshakeFingerprint != "" && retained.handshakeFingerprint != fingerprint {
 		retained.close()
@@ -1017,6 +1024,14 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		return s.mapOpenAIWSPassthroughDialError(err, statusCode, handshakeHeaders)
 	}
 	if retained != nil {
+		if !reused {
+			wrapped, wrapErr := newOpenAIWSAdaptiveRetainedConn(ctx, upstreamConn)
+			if wrapErr != nil {
+				_ = upstreamConn.Close()
+				return wrapErr
+			}
+			upstreamConn = wrapped
+		}
 		retained.conn, retained.status, retained.headers = upstreamConn, statusCode, handshakeHeaders
 		retained.handshakeFingerprint = openAIWSHandshakeFingerprint(wsURL, proxyURL, capturedSessionModel, gjson.GetBytes(firstClientMessage, "service_tier").String(), headers)
 		if releaseSocket != nil {

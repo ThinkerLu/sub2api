@@ -1,5 +1,7 @@
 # 功能索引
 
+beta3 修复：[Adaptive 上游 WS 轮间保活](2026-09-26-adaptive-ws-upstream-keepalive.md)。
+
 当前 beta2 行为：[双链路默认生效、移除新增开关与内存预算](2026-09-26-dual-leg-default-no-budget.md)。beta1 文档保留历史记录，冲突处以此文档为准。
 
 | 功能 | 文档 | 首次发布 |
