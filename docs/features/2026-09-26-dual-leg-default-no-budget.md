@@ -2,6 +2,8 @@
 
 目标版本：`v0.2.8-beta2-dual-leg-default`。分支：`codex/dual-leg-default-no-budget`，关联实现提交由本分支和发布包 manifest 记录。官方基线保持 `v0.2.8`。
 
+关联功能提交：`2ce748dd3`。发布合并提交和最终镜像摘要见 manifest。
+
 ## 变更与配置
 
 移除 beta1 新增的全部七项环境配置及对应 config.yaml 字段：
