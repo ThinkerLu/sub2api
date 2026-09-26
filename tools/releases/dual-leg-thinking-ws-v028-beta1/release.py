@@ -60,7 +60,8 @@ def verify_package(manifest):
     assert manifest['rollback_binary_sha256'] == BASE_BINARY_SHA256
     assert manifest['release_branch'] == 'codex/release-sub2api'
     assert re.fullmatch(r'[0-9a-f]{40}', manifest['commit'])
-    assert re.fullmatch(r'sub2api:v0\.2\.10-dual-leg-thinking-ws-[0-9a-f]{9}', manifest['image'])
+    assert manifest['version'] == 'v0.2.8-beta1-dual-leg-thinking-ws', '发布版本不匹配'
+    assert manifest['image'] == 'sub2api:' + manifest['version'] + '-' + manifest['commit'][:9], '镜像标签与发布版本或源码提交不一致'
     assert manifest['image'].endswith(manifest['commit'][:9]), '镜像标签与源码提交不一致'
     assert Path(manifest['archive']).name == manifest['archive'], '镜像归档名称不合法'
     checked = set()

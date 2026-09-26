@@ -9,6 +9,32 @@ import build_package
 
 
 class DualLegReleaseTests(unittest.TestCase):
+    def test_complete_beta_package_passes_real_verification(self):
+        with tempfile.TemporaryDirectory() as directory:
+            here = Path(directory)
+            for name in ('deploy.sh', 'rollback.sh', 'release.py', 'README.md', release.ADDITIVE_MIGRATION, 'image.tar.gz'):
+                (here / name).write_text('synthetic\n')
+            for name in ('deploy.sh', 'rollback.sh'):
+                (here / name).chmod(0o755)
+            manifest = dict(target='cc.thkl.site', rollback_commit=release.BASE_COMMIT,
+                            rollback_image=release.BASE_IMAGE, rollback_image_id=release.BASE_ID,
+                            rollback_image_config_digest=release.BASE_CONFIG_ID,
+                            rollback_binary_sha256=release.BASE_BINARY_SHA256,
+                            release_branch='codex/release-sub2api', commit='a' * 40,
+                            version=build_package.VERSION,
+                            image='sub2api:' + build_package.VERSION + '-aaaaaaaaa',
+                            archive='image.tar.gz', archive_sha256=release.digest(here / 'image.tar.gz'),
+                            additive_migrations={release.ADDITIVE_MIGRATION: release.hashlib.sha256(b'synthetic').hexdigest()})
+            (here / 'manifest.json').write_text(json.dumps(manifest))
+            (here / 'SHA256SUMS').write_text(''.join(release.digest(file) + '  ' + file.name + '\n' for file in sorted(here.iterdir())))
+            with patch.object(release, 'HERE', here):
+                self.assertEqual(release.verify_package(manifest), here / 'image.tar.gz')
+                for field, value in (('version', 'v0.2.10-dual-leg-thinking-ws'),
+                                     ('image', 'sub2api:v0.2.10-dual-leg-thinking-ws-aaaaaaaaa'),
+                                     ('image', 'sub2api:' + build_package.VERSION + '-bbbbbbbbb')):
+                    with self.subTest(field=field, value=value), self.assertRaises(AssertionError):
+                        release.verify_package({**manifest, field: value})
+
     def test_custom_version_preserves_upstream_version(self):
         self.assertEqual(build_package.UPSTREAM_TAG, 'v0.2.8')
         self.assertEqual(build_package.VERSION, 'v0.2.8-beta1-dual-leg-thinking-ws')
@@ -133,6 +159,7 @@ class DualLegReleaseTests(unittest.TestCase):
                         'rollback_image_config_digest': release.BASE_CONFIG_ID,
                         'rollback_binary_sha256': release.BASE_BINARY_SHA256,
                         'release_branch': 'codex/release-sub2api', 'commit': 'a' * 40,
+                        'version': build_package.VERSION,
                         'image': 'sub2api:v0.2.8-beta1-dual-leg-thinking-ws-aaaaaaaaa', 'archive': 'image.tar.gz'}
             with patch.object(release, 'HERE', here), self.assertRaises(AssertionError):
                 release.verify_package(manifest)

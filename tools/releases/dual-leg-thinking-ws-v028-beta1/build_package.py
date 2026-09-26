@@ -13,6 +13,7 @@ import subprocess
 import tarfile
 import tempfile
 import time
+import sys
 
 
 HERE = Path(__file__).resolve().parent
@@ -208,6 +209,7 @@ def main():
         lines = [sha(file) + '  ' + file.relative_to(delivery).as_posix() + '\n'
                  for file in sorted(delivery.rglob('*')) if file.is_file() and file.name != 'SHA256SUMS']
         (delivery / 'SHA256SUMS').write_text(''.join(lines))
+        run([sys.executable, '-c', 'import json, release; release.verify_package(json.loads((release.HERE / "manifest.json").read_text()))'], delivery, out / 'package-verification.log')
         print('release=' + str(delivery))
         print('commit=' + commit)
         print('image=' + image)
