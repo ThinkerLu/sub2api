@@ -20,6 +20,7 @@ import (
 )
 
 type openAIWSPassthroughHandlerHarness struct {
+	gatewayService *service.OpenAIGatewayService
 	serverURL      string
 	accountRepo    *openAIWSUsageHandlerAccountRepoStub
 	usageRepo      *openAIWSUsageHandlerUsageLogRepoStub
@@ -125,6 +126,7 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, conf
 	t.Cleanup(func() { _ = clientConn.CloseNow() })
 
 	return &openAIWSPassthroughHandlerHarness{
+		gatewayService: gatewaySvc,
 		serverURL:      handlerServer.URL,
 		accountRepo:    accountRepo,
 		usageRepo:      usageRepo,

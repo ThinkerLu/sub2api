@@ -28,6 +28,10 @@ func clientRequestedModel(c *gin.Context, fallback string) string {
 	if c == nil || c.Request == nil {
 		return fallback
 	}
+	// WS callers supply the current turn's public model; request context describes the first turn.
+	if isOpenAIWSUpgradeRequest(c.Request) {
+		return fallback
+	}
 	if model, ok := service.RequestedPublicModelFromContext(c.Request.Context()); ok {
 		return model
 	}

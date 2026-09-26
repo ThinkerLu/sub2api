@@ -2344,7 +2344,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		h.errorResponse(c, http.StatusUpgradeRequired, "invalid_request_error", "This model requires the HTTP Responses transport")
 		return
 	}
-	if h.gatewayService != nil {
+	// Composite routing needs the authoritative first-frame model, not a header hint.
+	if h.gatewayService != nil && (apiKey.Group == nil || apiKey.Group.Platform != service.PlatformComposite) {
 		hintModel := service.OpenAIWSRoutingHintModel(c.GetHeader("x-codex-routing-hint"))
 		if hintModel == "" {
 			hintModel = service.OpenAIWSTurnMetadataModel(c.GetHeader("x-codex-turn-metadata"))
@@ -2458,7 +2459,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 	// 分组级模型白名单：首帧校验客户端模型，不通过则关闭连接并标记运维原因。
-	// 必须在 ensureCompositeTargetPlatform（合成路由改写）之前执行。
+	// 必须在合成路由解析之前执行。
 	// 与 HTTP 准入一致：帧内重复 model 键/大小写变体可能被上游按末值绑定，
 	// 全部候选值逐一校验，任一未命中即拒绝。
 	if blocked := blockedModelAllowlistCandidate(apiKey.Group, requestmodel.FromBodyCandidates("", "application/json", firstMessage)); blocked != "" {
@@ -2467,8 +2468,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, fmt.Sprintf("Model %q is not available for this group", blocked))
 		return
 	}
-	ensureCompositeTargetPlatform(c, apiKey, reqModel)
-	ctx = c.Request.Context()
+	ctx, routeModel, resolveErr := h.gatewayService.ResolveOpenAIWSRoute(c.Request.Context(), apiKey.Group, reqModel)
+	if resolveErr != nil {
+		reqLog.Warn("openai.websocket_composite_route_failed", zap.Error(resolveErr))
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "unable to resolve composite model route")
+		return
+	}
+	c.Request = c.Request.WithContext(ctx)
 	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
 		platform, ok := service.ResolvedTargetPlatformFromContext(ctx)
 		if !ok || !isResponsesWebSocketCompositePlatform(platform) {
@@ -2533,8 +2539,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	}
 
 	// 解析渠道级模型映射
-	channelMappingWS, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, reqModel)
-	wsForwardModel := openAIChannelForwardModel(channelMappingWS, reqModel)
+	channelMappingWS, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, routeModel)
+	wsForwardModel := openAIChannelForwardModel(channelMappingWS, routeModel)
 	frozenMigration, migratedFirst, migrationErr := h.gatewayService.ResumeOpenAIWSModelMigration(ctx, c, firstMessage, reqModel, subject.UserID, apiKey.ID, apiKey.GroupID)
 	if migrationErr != nil {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model-switch recovery rejected")
@@ -2974,17 +2980,27 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return nil
 			},
 			MapRequestModel: func(turn int, originalModel string) (string, error) {
+				if turn == 1 {
+					return channelMappingWS.MappedModel, nil
+				}
 				model := strings.TrimSpace(originalModel)
 				if model == "" {
 					model = reqModel
 				}
 				setOpsRequestContext(c, model, true)
-				mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, model)
+				turnCtx, routeModel, err := h.gatewayService.ResolveOpenAIWSRoute(ctx, apiKey.Group, model)
+				if err != nil {
+					return "", service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "unable to resolve composite model route", err)
+				}
+				if platform, ok := service.ResolvedTargetPlatformFromContext(turnCtx); ok && service.NormalizeOpenAICompatiblePlatform(platform) != account.Platform {
+					return "", newOpenAIWSUnsupportedModelSwitchError(model)
+				}
+				mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(turnCtx, apiKey.GroupID, routeModel)
 				mappedModelUnchanged := false
 				if previous := turnChannelMapping.Load(); previous != nil && previous.turn < turn {
 					mappedModelUnchanged = strings.TrimSpace(previous.mapping.MappedModel) == strings.TrimSpace(mapping.MappedModel)
 				}
-				if turn > 1 && !mappedModelUnchanged && !account.IsModelSupported(model) && !account.IsModelSupported(mapping.MappedModel) {
+				if turn > 1 && !mappedModelUnchanged && !account.IsModelSupported(routeModel) && !account.IsModelSupported(mapping.MappedModel) {
 					return "", newOpenAIWSUnsupportedModelSwitchError(mapping.MappedModel)
 				}
 				turnChannelMapping.Store(&openAIWSTurnChannelMappingSnapshot{turn: turn, mapping: mapping})
