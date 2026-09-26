@@ -44,30 +44,22 @@ func (s *OpenAIGatewayService) PrepareOpenAIWSModelMigration(ctx context.Context
 	if groupID == nil || !s.OpenAIWSModelSwitchAllowed(c, *groupID) || !s.IsOpenAIWSAdaptive(account) {
 		return nil
 	}
-	mapping, restricted := s.ResolveChannelMappingAndRestrict(ctx, groupID, requestedModel)
+	targetPlatform := account.Platform
+	routeModel := requestedModel
+	if key := getAPIKeyFromContext(c); key != nil && key.Group != nil && key.Group.Platform == PlatformComposite {
+		var err error
+		ctx, routeModel, err = s.ResolveOpenAIWSRoute(ctx, key.Group, requestedModel)
+		if err != nil {
+			return err
+		}
+		platform, _ := ResolvedTargetPlatformFromContext(ctx)
+		targetPlatform = NormalizeOpenAICompatiblePlatform(platform)
+	}
+	mapping, restricted := s.ResolveChannelMappingAndRestrict(ctx, groupID, routeModel)
 	if restricted {
 		return ErrOpenAIWSRecoveryRejected
 	}
-	targetPlatform := account.Platform
-	if key := getAPIKeyFromContext(c); key != nil && key.Group != nil && key.Group.Platform == PlatformComposite {
-		platform, ok := DetectModelPlatform(requestedModel)
-		if !ok {
-			platform, ok = DetectModelPlatform(mapping.MappedModel)
-		}
-		if !ok {
-			return ErrOpenAIWSRecoveryRejected
-		}
-		targetPlatform = NormalizeOpenAICompatiblePlatform(platform)
-		ctx = WithResolvedTargetPlatform(ctx, targetPlatform)
-		mapping, restricted = s.ResolveChannelMappingAndRestrict(ctx, groupID, requestedModel)
-		if restricted {
-			return ErrOpenAIWSRecoveryRejected
-		}
-		if mappedPlatform, ok := DetectModelPlatform(mapping.MappedModel); ok && NormalizeOpenAICompatiblePlatform(mappedPlatform) != targetPlatform {
-			return ErrOpenAIWSRecoveryRejected
-		}
-	}
-	if account.Platform == targetPlatform && (account.IsModelSupported(requestedModel) || account.IsModelSupported(mapping.MappedModel)) {
+	if account.Platform == targetPlatform && (account.IsModelSupported(routeModel) || account.IsModelSupported(mapping.MappedModel)) {
 		return nil
 	}
 	previous := strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String())
