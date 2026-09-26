@@ -9,6 +9,12 @@ import build_package
 
 
 class DualLegReleaseTests(unittest.TestCase):
+    def test_custom_version_preserves_upstream_version(self):
+        self.assertEqual(build_package.UPSTREAM_TAG, 'v0.2.8')
+        self.assertEqual(build_package.VERSION, 'v0.2.8-beta1-dual-leg-thinking-ws')
+        self.assertRegex(build_package.VERSION, r'^' + build_package.UPSTREAM_TAG.replace('.', r'\.') + r'-beta[1-9][0-9]*-[a-z0-9-]+$')
+        self.assertEqual(release.BASE_IMAGE, 'sub2api:v0.2.9-traffic-trend-dashboard-326a74ac3')
+
     def test_atomic_configuration_write_preserves_permissions_and_owner(self):
         with tempfile.TemporaryDirectory() as directory:
             file = Path(directory) / '.env'
@@ -32,8 +38,8 @@ class DualLegReleaseTests(unittest.TestCase):
                     '  sub2api:\n    image: ' + release.BASE_IMAGE + '\n'
                     '    environment:\n      SERVER_PORT: 8080\n'
                     '  redis:\n    image: redis:8-alpine\n')
-        updated = release.switched_compose(original, release.BASE_IMAGE, 'sub2api:v0.2.10-dual-leg-thinking-ws-123456789')
-        self.assertEqual(updated.count('    image: sub2api:v0.2.10-dual-leg-thinking-ws-123456789'), 1)
+        updated = release.switched_compose(original, release.BASE_IMAGE, 'sub2api:v0.2.8-beta1-dual-leg-thinking-ws-123456789')
+        self.assertEqual(updated.count('    image: sub2api:v0.2.8-beta1-dual-leg-thinking-ws-123456789'), 1)
         self.assertIn('    image: postgres:18-alpine', updated)
         self.assertIn('    image: redis:8-alpine', updated)
         self.assertIn('SERVER_PORT: 8080', updated)
@@ -50,7 +56,7 @@ class DualLegReleaseTests(unittest.TestCase):
                         'archive': 'missing.tar.gz', 'archive_sha256': '', 'target': 'ac.thinkerlu.top',
                         'rollback_commit': release.BASE_COMMIT, 'rollback_image': release.BASE_IMAGE,
                         'rollback_image_id': release.BASE_ID, 'release_branch': 'codex/release-sub2api',
-                        'commit': 'a' * 40, 'image': 'sub2api:v0.2.10-dual-leg-thinking-ws-aaaaaaaaa'
+                        'commit': 'a' * 40, 'image': 'sub2api:v0.2.8-beta1-dual-leg-thinking-ws-aaaaaaaaa'
                     })
 
     def test_rejects_nonbaseline_container_before_loading_image(self):
@@ -127,7 +133,7 @@ class DualLegReleaseTests(unittest.TestCase):
                         'rollback_image_config_digest': release.BASE_CONFIG_ID,
                         'rollback_binary_sha256': release.BASE_BINARY_SHA256,
                         'release_branch': 'codex/release-sub2api', 'commit': 'a' * 40,
-                        'image': 'sub2api:v0.2.10-dual-leg-thinking-ws-aaaaaaaaa', 'archive': 'image.tar.gz'}
+                        'image': 'sub2api:v0.2.8-beta1-dual-leg-thinking-ws-aaaaaaaaa', 'archive': 'image.tar.gz'}
             with patch.object(release, 'HERE', here), self.assertRaises(AssertionError):
                 release.verify_package(manifest)
 

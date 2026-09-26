@@ -1,4 +1,6 @@
-# v0.2.10 双链路 WS 与思考回传备用机发布包
+# v0.2.8-beta1 双链路 WS 与思考回传备用机发布包
+
+完整版本为 `v0.2.8-beta1-dual-leg-thinking-ws`，官方源码基线为 `v0.2.8`（`fd80b08c90b55edcad5b00171b53f08721d30da1`）。自定义发布只递增 beta 序号，不递增官方版本号。本包替代已作废且未部署的 `v0.2.10-dual-leg-thinking-ws` 包。旧基线和回滚镜像仍使用实际部署的历史名称，不作重命名。
 
 唯一目标：`cc.thkl.site`，域名 `llmapi.thkl.site`。基线为 `v0.2.9-traffic-trend-dashboard-326a74ac3`，Compose 目录 `/home/thinkerlu/sub2api-deploy`，使用 `docker-compose.yml` 与 `docker-compose.host-access.yml` 两个文件。禁止在主服务器运行。
 
@@ -6,7 +8,7 @@
 
 ## 上传后与部署
 
-完整目录应位于 `/home/thinkerlu/sub2api-deploy/releases/dual-leg-thinking-ws-v0210-<commit9>/`。先在该目录执行：
+完整目录应位于 `/home/thinkerlu/sub2api-deploy/releases/dual-leg-thinking-ws-v028-beta1-<commit9>/`。先在该目录执行：
 
 ```sh
 sha256sum -c SHA256SUMS
@@ -37,4 +39,4 @@ sudo ./rollback.sh
 
 ## 重建
 
-在发布 worktree 运行 `python3 tools/releases/dual-leg-thinking-ws-v0210/build_package.py`。构建要求本地 Go 1.27、已安装前端依赖、Docker context `colima-sub2api-build`、基线镜像和合成 Codex CLI。脚本运行后端回归、前端测试/类型检查、Redis CAS、真实 PostgreSQL、真实 CLI 恢复/不重试探针、竞态检查、Linux 内存压力及镜像内嵌前端冒烟。
+在发布 worktree 运行 `python3 tools/releases/dual-leg-thinking-ws-v028-beta1/build_package.py`。构建要求本地 Go 1.27、已安装前端依赖、Docker context `colima-sub2api-build`、基线镜像和合成 Codex CLI。脚本运行后端回归、前端测试/类型检查、Redis CAS、真实 PostgreSQL、真实 CLI 恢复/不重试探针、竞态检查、Linux 内存压力及镜像内嵌前端冒烟。

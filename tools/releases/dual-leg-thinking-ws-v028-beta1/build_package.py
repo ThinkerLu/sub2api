@@ -17,6 +17,9 @@ import time
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
+UPSTREAM_TAG = 'v0.2.8'
+UPSTREAM_COMMIT = 'fd80b08c90b55edcad5b00171b53f08721d30da1'
+VERSION = UPSTREAM_TAG + '-beta1-dual-leg-thinking-ws'
 BASE_RELEASE_COMMIT = '326a74ac3d57268aa074bc1e39abd1dbc527241a'
 BASE_RUNTIME_COMMIT = '326a74ac3d57268aa074bc1e39abd1dbc527241a'
 BASE_IMAGE = 'sub2api:v0.2.9-traffic-trend-dashboard-326a74ac3'
@@ -56,6 +59,8 @@ def main():
     assert run(['git', 'symbolic-ref', '--short', 'HEAD'], REPO) == 'codex/release-sub2api', '只允许发布分支打包'
     assert not run(['git', 'status', '--porcelain'], REPO), '发布 worktree 必须干净'
     commit = run(['git', 'rev-parse', 'HEAD'], REPO)
+    assert run(['git', 'rev-parse', UPSTREAM_TAG + '^{commit}'], REPO) == UPSTREAM_COMMIT, '官方基线 tag 不匹配'
+    run(['git', 'merge-base', '--is-ancestor', UPSTREAM_COMMIT, commit], REPO)
     run(['git', 'merge-base', '--is-ancestor', BASE_RELEASE_COMMIT, commit], REPO)
     run(['git', 'diff', '--exit-code', BASE_RELEASE_COMMIT, commit, '--', 'Dockerfile', 'deploy/docker-entrypoint.sh'], REPO)
     changed_migrations = run(['git', 'diff', '--name-only', BASE_RELEASE_COMMIT, commit, '--', 'backend/migrations/*.sql'], REPO).splitlines()
@@ -63,14 +68,14 @@ def main():
     info = json.loads(run(DOCKER + ['image', 'inspect', BASE_IMAGE], REPO))[0]
     assert info['Id'] == BASE_ID and (info['Os'], info['Architecture']) == ('linux', 'amd64'), '旧镜像摘要或平台不符'
 
-    version = 'v0.2.10-dual-leg-thinking-ws'
+    version = VERSION
     image = 'sub2api:' + version + '-' + commit[:9]
     out = HERE / 'image'
     delivery = HERE / 'delivery'
     assert not out.exists() and not delivery.exists(), '已有构建产物，请人工检查后选择新目录'
     out.mkdir()
     delivery.mkdir()
-    with tempfile.TemporaryDirectory(prefix='sub2api-v0210-build-', dir='/private/tmp') as tmp:
+    with tempfile.TemporaryDirectory(prefix='sub2api-v028-beta1-build-', dir='/private/tmp') as tmp:
         work = Path(tmp)
         source_tar = work / 'source.tar'
         run(['git', 'archive', '--format=tar', '-o', source_tar, commit], REPO)
@@ -173,6 +178,7 @@ def main():
             config_digest = 'sha256:' + hashlib.sha256(saved.extractfile(saved_manifest[0]['Config']).read()).hexdigest()
 
         manifest = dict(target='cc.thkl.site', release_branch='codex/release-sub2api',
+                        upstream_tag=UPSTREAM_TAG, upstream_commit=UPSTREAM_COMMIT,
                         commit=commit, version=version, image=image,
                         image_id=new_info['Id'], image_config_digest=config_digest,
                         archive=archive.name, archive_sha256=sha(archive),

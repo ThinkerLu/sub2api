@@ -1,6 +1,6 @@
 # 使用记录的双向传输维度
 
-目标版本：`v0.2.10-dual-leg-thinking-ws`（待发布）。关联提交为本功能分支的 `feat(usage): record ingress transport and expose HTTP to WS filters`。
+目标版本：`v0.2.8-beta1-dual-leg-thinking-ws`（待发布）。关联提交为本功能分支的 `feat(usage): record ingress transport and expose HTTP to WS filters`。
 
 ## 目的和使用
 
