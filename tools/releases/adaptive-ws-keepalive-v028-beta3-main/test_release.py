@@ -30,7 +30,7 @@ class DualLegReleaseTests(unittest.TestCase):
             with patch.object(release, 'run'), self.assertRaises(AssertionError):
                 release.backup_database(backup)
 
-    def test_preflight_skip_removes_only_database_space_requirement(self):
+    def test_preflight_reports_space_without_blocking_either_backup_mode(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / '.env').touch()
@@ -57,14 +57,14 @@ class DualLegReleaseTests(unittest.TestCase):
                  patch.object(release, 'compose', side_effect=compose) as commands, \
                  patch.object(release.shutil, 'disk_usage') as usage:
                 usage.return_value.free = 1024 ** 3
-                with self.assertRaises(AssertionError):
-                    release.check_preflight({})
-                commands.reset_mock()
+                self.assertEqual(release.check_preflight({}), 'baseline')
                 self.assertEqual(release.check_preflight({}, skip_database_backup=True), 'baseline')
                 self.assertFalse(any('pg_database_size' in str(call) for call in commands.call_args_list))
                 usage.return_value.free = 1
-                with self.assertRaises(AssertionError):
-                    release.check_preflight({}, skip_database_backup=True)
+                with patch('builtins.print') as output:
+                    self.assertEqual(release.check_preflight({}, skip_database_backup=True), 'baseline')
+                    self.assertEqual(release.check_preflight({}), 'baseline')
+                self.assertTrue(any('1 字节' in str(call) for call in output.call_args_list))
 
     def test_deploy_passes_skip_choice_to_preflight(self):
         with patch.object(release, 'check_preflight', side_effect=RuntimeError('stop')) as preflight:
