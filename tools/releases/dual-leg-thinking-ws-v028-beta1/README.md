@@ -8,6 +8,8 @@
 
 ## 上传后与部署
 
+脚本修订 1 修复 beta 镜像被旧版标签正则拒绝的问题，补充完整包通过校验的回归测试，并在组包末尾执行真实包校验。本修订不修改应用镜像；若对既有包补发脚本，manifest 的 `deployment_scripts_commit` 单独记录脚本来源，`commit` 仍指向镜像构建提交，补丁见 `deployment-scripts.patch`。更新脚本后必须重新生成并校验 `SHA256SUMS`。
+
 完整目录应位于 `/home/thinkerlu/sub2api-deploy/releases/dual-leg-thinking-ws-v028-beta1-<commit9>/`。先在该目录执行：
 
 ```sh
