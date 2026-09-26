@@ -735,10 +735,16 @@ func normalizeOpenAIResponsesReasoningForAccount(body []byte, account *Account) 
 		return body, false, nil
 	}
 	model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
-	if ResolveThinkingProtocol(account.GetMappedModel(model)) == ThinkingProtocolPassbackRequired {
-		return body, false, nil
+	model = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(model))
+	cleaned, cleanedChanged, err := sanitizeOpenAIResponsesKnownForeignReasoning(body, model)
+	if err != nil {
+		return body, false, err
 	}
-	return normalizeOpenAIResponsesReasoningContentReplay(body)
+	if ResolveThinkingProtocol(model) == ThinkingProtocolPassbackRequired {
+		return cleaned, cleanedChanged, nil
+	}
+	next, changed, err := normalizeOpenAIResponsesReasoningContentReplay(cleaned)
+	return next, cleanedChanged || changed, err
 }
 
 func normalizeOpenAIStoreFalseReasoningForAccount(body []byte, account *Account, knownStoreFalse bool) ([]byte, bool, error) {
@@ -749,10 +755,18 @@ func normalizeOpenAIStoreFalseReasoningForAccount(body []byte, account *Account,
 }
 
 func normalizeOpenAIResponsesFinalWSReasoning(body []byte, account *Account, finalModel string) ([]byte, bool, error) {
-	if account == nil || !account.IsOpenAI() || ResolveThinkingProtocol(finalModel) == ThinkingProtocolPassbackRequired {
+	if account == nil || !account.IsOpenAI() {
 		return body, false, nil
 	}
-	normalized, changed, err := normalizeOpenAIResponsesReasoningContentReplay(body)
+	cleaned, cleanedChanged, err := sanitizeOpenAIResponsesKnownForeignReasoning(body, finalModel)
+	if err != nil {
+		return body, false, err
+	}
+	if ResolveThinkingProtocol(finalModel) == ThinkingProtocolPassbackRequired {
+		return cleaned, cleanedChanged, nil
+	}
+	normalized, changed, err := normalizeOpenAIResponsesReasoningContentReplay(cleaned)
+	changed = changed || cleanedChanged
 	if err != nil || !account.IsOpenAIApiKey() {
 		return normalized, changed, err
 	}

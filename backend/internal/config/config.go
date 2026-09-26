@@ -1287,9 +1287,12 @@ type GatewayOpenAIWSConfig struct {
 	// GPTThresholdRoutingEnabled: 只对已知最终 GPT 模型按最大候选体积应用桥接阈值；默认关闭。
 	GPTThresholdRoutingEnabled bool `mapstructure:"gpt_threshold_routing_enabled"`
 	// DualLegEnabled keeps adaptive sessions in a per-turn HTTP/WS routing loop.
-	DualLegEnabled                  bool  `mapstructure:"dual_leg_enabled"`
-	DualLegMemoryBudgetBytes        int64 `mapstructure:"dual_leg_memory_budget_bytes"`
-	DualLegAccountMemoryBudgetBytes int64 `mapstructure:"dual_leg_account_memory_budget_bytes"`
+	DualLegEnabled                   bool     `mapstructure:"dual_leg_enabled"`
+	DualLegMemoryBudgetBytes         int64    `mapstructure:"dual_leg_memory_budget_bytes"`
+	DualLegAccountMemoryBudgetBytes  int64    `mapstructure:"dual_leg_account_memory_budget_bytes"`
+	ModelSwitchFullRetryEnabled      bool     `mapstructure:"model_switch_full_retry_enabled"`
+	ModelSwitchAllowedGroupIDs       []int64  `mapstructure:"model_switch_allowed_group_ids"`
+	ModelSwitchAllowedClientVersions []string `mapstructure:"model_switch_allowed_client_versions"`
 
 	// Feature 开关：v2 优先于 v1
 	ResponsesWebsockets   bool `mapstructure:"responses_websockets"`
@@ -2431,6 +2434,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_ws.dual_leg_enabled", false)
 	viper.SetDefault("gateway.openai_ws.dual_leg_memory_budget_bytes", 0)
 	viper.SetDefault("gateway.openai_ws.dual_leg_account_memory_budget_bytes", 0)
+	viper.SetDefault("gateway.openai_ws.model_switch_full_retry_enabled", false)
+	viper.SetDefault("gateway.openai_ws.model_switch_allowed_group_ids", []int64{})
+	viper.SetDefault("gateway.openai_ws.model_switch_allowed_client_versions", []string{})
 	viper.SetDefault("gateway.openai_ws.responses_websockets", false)
 	viper.SetDefault("gateway.openai_ws.responses_websockets_v2", true)
 	viper.SetDefault("gateway.openai_ws.max_conns_per_account", 128)
@@ -3502,6 +3508,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.OpenAIWS.HTTPBridgeEnabled && c.Gateway.OpenAIWS.HTTPBridgeThresholdBytes == 0 {
 		return fmt.Errorf("gateway.openai_ws.http_bridge_threshold_bytes must be positive when http_bridge_enabled is true")
+	}
+	if c.Gateway.OpenAIWS.ModelSwitchFullRetryEnabled && (!c.Gateway.OpenAIWS.DualLegEnabled || len(c.Gateway.OpenAIWS.ModelSwitchAllowedGroupIDs) == 0 || len(c.Gateway.OpenAIWS.ModelSwitchAllowedClientVersions) == 0) {
+		return fmt.Errorf("model_switch_full_retry_enabled requires dual_leg_enabled and explicit group/client-version allowlists")
 	}
 	if c.Gateway.OpenAIWS.FallbackCooldownSeconds < 0 {
 		return fmt.Errorf("gateway.openai_ws.fallback_cooldown_seconds must be non-negative")

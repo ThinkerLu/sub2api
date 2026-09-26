@@ -31,7 +31,7 @@ func (c *wsRecoveryCacheStub) GetOpenAIWSRecoveryState(_ context.Context, kind, 
 	defer c.mu.Unlock()
 	return append([]byte(nil), c.states[kind+key]...), nil
 }
-func (c *wsRecoveryCacheStub) CompareAndSwapOpenAIWSRecoveryState(_ context.Context, kind, key string, expected, replacement []byte) (bool, error) {
+func (c *wsRecoveryCacheStub) CompareAndSwapOpenAIWSRecoveryState(_ context.Context, kind, key string, expected, replacement []byte, _ ...time.Duration) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	k := kind + key

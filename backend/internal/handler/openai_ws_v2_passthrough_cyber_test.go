@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +20,9 @@ import (
 )
 
 type openAIWSPassthroughHandlerHarness struct {
+	serverURL      string
+	accountRepo    *openAIWSUsageHandlerAccountRepoStub
+	usageRepo      *openAIWSUsageHandlerUsageLogRepoStub
 	clientConn     *coderws.Conn
 	handlerDone    <-chan struct{}
 	moderationRepo *contentModerationHandlerTestRepo
@@ -72,7 +76,7 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, conf
 		apply(cfg, &account)
 	}
 	accountRepo := &openAIWSUsageHandlerAccountRepoStub{account: account}
-	usageRepo := &openAIWSUsageHandlerUsageLogRepoStub{created: make(chan *service.UsageLog, 2)}
+	usageRepo := &openAIWSUsageHandlerUsageLogRepoStub{created: make(chan *service.UsageLog, 16)}
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	gatewaySvc := service.NewOpenAIGatewayService(
 		accountRepo, usageRepo, nil, nil, nil, nil, gatewayCache, cfg, nil, nil,
@@ -100,6 +104,7 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, conf
 		User:    &service.User{ID: 1751, Status: service.StatusActive},
 	}
 	handlerDone := make(chan struct{})
+	var handlerDoneOnce sync.Once
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyAPIKey), apiKey)
@@ -108,7 +113,7 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, conf
 	})
 	router.GET("/openai/v1/responses", func(c *gin.Context) {
 		h.ResponsesWebSocket(c)
-		close(handlerDone)
+		handlerDoneOnce.Do(func() { close(handlerDone) })
 	})
 	handlerServer := httptest.NewServer(router)
 	t.Cleanup(handlerServer.Close)
@@ -120,6 +125,9 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, conf
 	t.Cleanup(func() { _ = clientConn.CloseNow() })
 
 	return &openAIWSPassthroughHandlerHarness{
+		serverURL:      handlerServer.URL,
+		accountRepo:    accountRepo,
+		usageRepo:      usageRepo,
 		clientConn:     clientConn,
 		handlerDone:    handlerDone,
 		moderationRepo: moderationRepo,

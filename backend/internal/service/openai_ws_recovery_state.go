@@ -19,7 +19,7 @@ var ErrOpenAIWSRecoveryRejected = errors.New("websocket recovery state rejected"
 type OpenAIWSRecoveryCache interface {
 	CreateOpenAIWSRecoveryState(context.Context, string, string, []byte, time.Duration) (bool, error)
 	GetOpenAIWSRecoveryState(context.Context, string, string) ([]byte, error)
-	CompareAndSwapOpenAIWSRecoveryState(context.Context, string, string, []byte, []byte) (bool, error)
+	CompareAndSwapOpenAIWSRecoveryState(context.Context, string, string, []byte, []byte, ...time.Duration) (bool, error)
 }
 
 type OpenAIWSResponseOwner struct {
@@ -138,7 +138,21 @@ func (s *OpenAIGatewayService) CreateOpenAIWSMigrationIntent(ctx context.Context
 		return err
 	}
 	if !created {
-		return ErrOpenAIWSRecoveryRejected
+		previousRaw, readErr := cache.GetOpenAIWSRecoveryState(ctx, "migration", key)
+		if readErr != nil {
+			return readErr
+		}
+		var previous OpenAIWSMigrationIntent
+		if json.Unmarshal(previousRaw, &previous) != nil || !previous.Consumed || previous.Owner.Scope != intent.Owner.Scope || previous.Owner.UserID != intent.Owner.UserID || previous.Owner.APIKeyID != intent.Owner.APIKeyID || previous.Owner.GroupID != intent.Owner.GroupID || previous.TargetAccountID != intent.Owner.AccountID || previous.Owner.ResponseID == intent.Owner.ResponseID {
+			return ErrOpenAIWSRecoveryRejected
+		}
+		replaced, swapErr := cache.CompareAndSwapOpenAIWSRecoveryState(ctx, "migration", key, previousRaw, payload, ttl)
+		if swapErr != nil {
+			return swapErr
+		}
+		if !replaced {
+			return ErrOpenAIWSRecoveryRejected
+		}
 	}
 	return nil
 }
@@ -156,8 +170,11 @@ func (s *OpenAIGatewayService) LoadOpenAIWSMigrationIntent(ctx context.Context, 
 		return nil, nil, err
 	}
 	var intent OpenAIWSMigrationIntent
-	if json.Unmarshal(payload, &intent) != nil || intent.Version != 1 || !validOpenAIWSResponseOwner(intent.Owner) || intent.Owner.GroupID != groupID || intent.Owner.UserID != userID || intent.Owner.APIKeyID != apiKeyID || intent.Owner.Scope != scope || intent.ExpiresAt <= time.Now().Unix() || !intent.NotSent || intent.Consumed {
+	if json.Unmarshal(payload, &intent) != nil || intent.Version != 1 || !validOpenAIWSResponseOwner(intent.Owner) || intent.Owner.GroupID != groupID || intent.Owner.UserID != userID || intent.Owner.APIKeyID != apiKeyID || intent.Owner.Scope != scope || intent.ExpiresAt <= time.Now().Unix() || !intent.NotSent {
 		return nil, nil, ErrOpenAIWSRecoveryRejected
+	}
+	if intent.Consumed {
+		return &intent, payload, ErrOpenAIWSRecoveryRejected
 	}
 	return &intent, payload, nil
 }

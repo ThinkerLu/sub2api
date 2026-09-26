@@ -29,6 +29,16 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, filterErr
 	}
 	body = filteredBody
+	if !account.IsOpenAI() {
+		target := account.GetMappedModel(gjson.GetBytes(body, "model").String())
+		cleaned, changed, err := sanitizeOpenAIResponsesKnownForeignReasoning(body, target)
+		if err != nil {
+			return nil, err
+		}
+		if changed {
+			body = cleaned
+		}
+	}
 	clearGrokResponsesClientToolMapping(c)
 	clearOpenAIResponsesClientToolMapping(c)
 	clearOpenAIResponsesNamespaceNames(c)

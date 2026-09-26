@@ -310,7 +310,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSAdaptiveWarmup(ctx context.Context, 
 	if result != nil {
 		result.wsAccountFailoverReplayInput = collector.AllItems()
 	}
-	if err == nil && (result == nil || !result.SucceededForScheduling()) {
+	if err == nil && (result == nil || (result.UpstreamTerminalEvent != "response.completed" && result.UpstreamTerminalEvent != "response.done")) {
 		err = NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "adaptive warmup did not complete successfully", nil)
 	}
 	logOpenAIWSModeInfo("ingress_ws_adaptive_warmup_completed account_id=%d turn=%d payload_bytes=%d success=%v", account.ID, handoff.turn, len(payload), err == nil)

@@ -334,6 +334,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 			}
 		}
 		promptCacheKey := strings.TrimSpace(values[2].String())
+		if hooks != nil && hooks.BeforeRoute != nil {
+			if err := hooks.BeforeRoute(turn, trimmed, originalModel); err != nil {
+				return openAIWSClientPayload{}, err
+			}
+		}
 		previousResponseID := strings.TrimSpace(values[3].String())
 		previousResponseIDKind := ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
 		if previousResponseID != "" && previousResponseIDKind == OpenAIPreviousResponseIDKindMessageID {
@@ -635,6 +640,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 		currentBridgePayload := firstPayload
 		adaptive := ingressMode == OpenAIWSIngressModeAdaptive
 		lastBridgeResponseID := ""
+		lastBridgeModel := ""
 		// Keep the first turn as the stable conversation seed. The mapped model
 		// is resolved again for each turn below so an in-connection model switch
 		// cannot reuse another model's upstream cache identity.
@@ -762,13 +768,30 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 				if candidateErr != nil {
 					return candidateErr
 				}
+				finalModel := strings.TrimSpace(gjson.GetBytes(currentBridgePayload.payloadRaw, "model").String())
+				if dualLeg && lastBridgeModel != "" && openAIWSHistoryProtocol(lastBridgeModel) != openAIWSHistoryProtocol(finalModel) {
+					if err := memory.growWorking(int64(len(candidate))); err != nil {
+						return err
+					}
+					candidate, candidateErr = sanitizeOpenAIWSMigrationHistory(candidate, lastBridgeModel, finalModel)
+					if candidateErr != nil {
+						return candidateErr
+					}
+					hooks.adaptiveUpstream.close()
+					bridgePayloadRaw, httpBridgePayload = candidate, candidate
+					bridgePayloadBytes = len(candidate)
+					turnReplayInput, turnReplayInputExists, candidateErr = openAIWSExtractNormalizedInputSequence(candidate)
+					if candidateErr != nil {
+						return candidateErr
+					}
+					turnAccountFailoverInput, turnAccountFailoverInputExists = turnReplayInput, turnReplayInputExists
+				}
 				// A retained socket already owns referenced history. Do not combine a
 				// restored full input with the same previous_response_id on that socket.
 				wsPayload := candidate
 				if hooks != nil && hooks.adaptiveUpstream != nil && hooks.adaptiveUpstream.conn != nil && (!needsBridgeReplay || currentBridgePayload.previousResponseID != "") {
 					wsPayload = currentBridgePayload.payloadRaw
 				}
-				finalModel := strings.TrimSpace(gjson.GetBytes(currentBridgePayload.payloadRaw, "model").String())
 				if finalModel == "" {
 					finalModel = strings.TrimSpace(gjson.GetBytes(wsPayload, "model").String())
 				}
@@ -837,6 +860,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 					writeClientMessage,
 				)
 			}
+			if dualLeg && bridgeErr == nil && (result == nil || (result.UpstreamTerminalEvent != "response.completed" && result.UpstreamTerminalEvent != "response.done")) {
+				bridgeErr = errors.New("upstream turn did not provide a successful terminal event")
+			}
 			if bridgeErr != nil && isOpenAIWSSessionPreempted(ctx) {
 				return errOpenAIWSSessionPreempted
 			}
@@ -863,7 +889,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 					// A failed turn cannot establish a replay prefix or response binding.
 					bridgeReplayInput, bridgeAccountFailoverInput = nil, nil
 					bridgeReplayInputExists, bridgeAccountFailoverInputExists = false, false
-					lastBridgeResponseID, turnState = "", ""
+					lastBridgeResponseID, lastBridgeModel, turnState = "", "", ""
 					if err := memory.finishTurn(0); err != nil {
 						return err
 					}
@@ -936,6 +962,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 			}
 			responseID := strings.TrimSpace(result.RequestID)
 			lastBridgeResponseID = responseID
+			lastBridgeModel = strings.TrimSpace(gjson.GetBytes(currentBridgePayload.payloadRaw, "model").String())
 			if responseID != "" && stateStore != nil {
 				ttl := s.openAIWSResponseStickyTTL()
 				logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, stateStore.BindResponseAccount(ctx, groupID, responseID, account.ID, ttl))

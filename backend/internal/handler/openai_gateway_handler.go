@@ -2544,6 +2544,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	// 解析渠道级模型映射
 	channelMappingWS, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, reqModel)
 	wsForwardModel := openAIChannelForwardModel(channelMappingWS, reqModel)
+	frozenMigration, migratedFirst, migrationErr := h.gatewayService.ResumeOpenAIWSModelMigration(ctx, c, firstMessage, reqModel, subject.UserID, apiKey.ID, apiKey.GroupID)
+	if migrationErr != nil {
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model-switch recovery rejected")
+		return
+	}
+	firstMessage = migratedFirst
 	requestPlatform := openAICompatibleRequestPlatform(ctx, apiKey)
 	requiredTransport := service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
 	if requestPlatform == service.PlatformGrok {
@@ -2728,20 +2734,27 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return
 		}
 		reqLog.Debug("openai.websocket_account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
-		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			ctx,
-			apiKey.GroupID,
-			previousResponseID,
-			sessionHash,
-			wsForwardModel,
-			failedAccountIDs,
-			requiredTransport,
-			requiredCapability,
-			false,
-			previousResponseCanMove,
-			!imageIntent,
-			requestPlatform,
-		)
+		var selection *service.AccountSelectionResult
+		var scheduleDecision service.OpenAIAccountScheduleDecision
+		var err error
+		if frozenMigration != nil {
+			selection, scheduleDecision, err = h.gatewayService.SelectOpenAIWSMigrationTarget(ctx, apiKey.GroupID, frozenMigration, wsForwardModel, requestPlatform)
+		} else {
+			selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
+				ctx,
+				apiKey.GroupID,
+				previousResponseID,
+				sessionHash,
+				wsForwardModel,
+				failedAccountIDs,
+				requiredTransport,
+				requiredCapability,
+				false,
+				previousResponseCanMove,
+				!imageIntent,
+				requestPlatform,
+			)
+		}
 		if err != nil {
 			reqLog.Warn("openai.websocket_account_select_failed",
 				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
@@ -2913,6 +2926,15 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return
 		}
 		hooks := &service.OpenAIWSIngressHooks{
+			BeforeRoute: func(turn int, payload []byte, model string) error {
+				if turn <= 1 {
+					return nil
+				}
+				if blocked := blockedModelAllowlistCandidate(apiKey.Group, requestmodel.FromBodyCandidates("", "application/json", payload)); blocked != "" {
+					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "model is not available for this group", nil)
+				}
+				return h.gatewayService.PrepareOpenAIWSModelMigration(ctx, c, account, payload, model, subject.UserID, apiKey.ID, apiKey.GroupID)
+			},
 			ClientLifecycleContext:      clientLifecycleCtx,
 			InitialRequestModel:         reqModel,
 			InitialTurnStartedAt:        firstTurnStartedAt,
@@ -3058,6 +3080,15 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if turnUpstreamModel == "" {
 					turnUpstreamModel = turnRequestedModel
 				}
+				if turnErr == nil && result != nil && (result.UpstreamTerminalEvent == "response.completed" || result.UpstreamTerminalEvent == "response.done") && apiKey.GroupID != nil && h.gatewayService.OpenAIWSModelSwitchAllowed(c, *apiKey.GroupID) {
+					owner := service.OpenAIWSResponseOwner{Version: 1, GroupID: *apiKey.GroupID, UserID: subject.UserID, APIKeyID: apiKey.ID, AccountID: account.ID, ResponseID: result.RequestID, RequestedModel: turnRequestedModel, UpstreamModel: turnUpstreamModel, Scope: service.OpenAIWSMigrationScope(c, cyberBlockBody, apiKey.ID), Terminal: true}
+					bindCtx, cancelBind := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+					bindErr := h.gatewayService.SaveOpenAIWSResponseOwner(bindCtx, owner)
+					cancelBind()
+					if bindErr != nil {
+						reqLog.Warn("openai.websocket_strict_owner_bind_failed", zap.Error(bindErr))
+					}
+				}
 				turnUsageFields := turnMapping.ToUsageFields(turnRequestedModel, turnUpstreamModel)
 				cyberMarked := service.GetOpsCyberPolicy(c) != nil
 				h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, turnRequestedModel, turnErr != nil, cyberBlockBody, turnUsageFields, requestPayloadHash)
@@ -3068,7 +3099,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					turnErr,
 				)
 				if turnErr != nil {
-					if result == nil || result.ImageCount <= 0 {
+					hasObservedDualLegUsage := h.cfg != nil && h.cfg.Gateway.OpenAIWS.DualLegEnabled && result != nil && (result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0 || result.Usage.CacheReadInputTokens > 0 || result.Usage.CacheCreationInputTokens > 0)
+					if result == nil || (result.ImageCount <= 0 && !hasObservedDualLegUsage) {
 						return
 					}
 					// cyber 命中时该 turn 的用量已由 recordCyberPolicyIfMarked(forwardErrored=true)
@@ -3076,9 +3108,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					if service.GetOpsCyberPolicy(c) != nil {
 						return
 					}
-					reqLog.Warn("openai.websocket_partial_error_with_image_result",
+					reqLog.Warn("openai.websocket_partial_error_with_observed_usage",
 						zap.Int64("account_id", account.ID),
 						zap.Int("image_count", result.ImageCount),
+						zap.Int("input_tokens", result.Usage.InputTokens),
+						zap.Int("output_tokens", result.Usage.OutputTokens),
 						zap.Error(turnErr),
 					)
 				}
@@ -3100,7 +3134,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if scheduleModel == "" {
 					scheduleModel = turnRequestedModel
 				}
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account, scheduleModel, openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account, scheduleModel, turnErr == nil && openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
 				inboundEndpoint := GetInboundEndpoint(c)
 				upstreamEndpoint := resolveOpenAIUpstreamEndpoint(c, account, result)
 				quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
@@ -3165,6 +3199,18 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			if service.IsOpenAIWSSessionPreemptedError(err) {
 				// 关闭帧已由抢占登记在取消前发给本连接，这里只记录并释放。
 				reqLog.Info("openai.websocket_ingress_preempted", zap.Int64("account_id", account.ID))
+				return
+			}
+			var migrationRetry *service.OpenAIWSMigrationRetryError
+			if errors.As(err, &migrationRetry) {
+				writeCtx, cancelWrite := context.WithTimeout(ctx, 5*time.Second)
+				_ = wsConn.Write(writeCtx, coderws.MessageText, migrationRetry.Event)
+				cancelWrite()
+				closeOpenAIClientWS(wsConn, coderws.StatusNormalClosure, "full-context retry required")
+				return
+			}
+			if frozenMigration != nil {
+				closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model-switch target failed; recovery will not be replayed")
 				return
 			}
 			var failoverErr *service.UpstreamFailoverError

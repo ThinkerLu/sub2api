@@ -13,7 +13,7 @@ import (
 var _ service.OpenAIWSRecoveryCache = (*gatewayCache)(nil)
 
 func openAIWSRecoveryCacheKey(kind, key string) (string, error) {
-	if (kind != "owner" && kind != "migration") || len(key) != 64 {
+	if (kind != "owner" && kind != "migration" && kind != "replay") || len(key) != 64 {
 		return "", service.ErrOpenAIWSRecoveryRejected
 	}
 	return fmt.Sprintf("openai:ws-recovery:v1:%s:%s", kind, key), nil
@@ -53,11 +53,12 @@ local current=redis.call('GET',KEYS[1])
 if current==false or current~=ARGV[1] then return 0 end
 local ttl=redis.call('PTTL',KEYS[1])
 if ttl<=0 then return 0 end
+if tonumber(ARGV[3])>0 then ttl=tonumber(ARGV[3]) end
 redis.call('SET',KEYS[1],ARGV[2],'PX',ttl)
 return 1
 `)
 
-func (c *gatewayCache) CompareAndSwapOpenAIWSRecoveryState(ctx context.Context, kind, key string, expected, replacement []byte) (bool, error) {
+func (c *gatewayCache) CompareAndSwapOpenAIWSRecoveryState(ctx context.Context, kind, key string, expected, replacement []byte, replaceTTL ...time.Duration) (bool, error) {
 	if c == nil || c.rdb == nil {
 		return false, service.ErrOpenAIWSRecoveryUnavailable
 	}
@@ -68,6 +69,13 @@ func (c *gatewayCache) CompareAndSwapOpenAIWSRecoveryState(ctx context.Context, 
 	if err != nil {
 		return false, err
 	}
-	n, err := swapOpenAIWSRecoveryStateScript.Run(ctx, c.rdb, []string{k}, expected, replacement).Int()
+	ttl := int64(0)
+	if len(replaceTTL) > 0 {
+		if replaceTTL[0] <= 0 || replaceTTL[0] > 2*time.Minute {
+			return false, service.ErrOpenAIWSRecoveryRejected
+		}
+		ttl = replaceTTL[0].Milliseconds()
+	}
+	n, err := swapOpenAIWSRecoveryStateScript.Run(ctx, c.rdb, []string{k}, expected, replacement, ttl).Int()
 	return n == 1, err
 }
