@@ -11,3 +11,5 @@
 脚本路径：`tools/releases/adaptive-ws-keepalive-v028-beta3-main/`。完整包上传到 `/home/thinkerlu/sub2api-releases/adaptive-ws-keepalive-v028-beta3-main-b3a100e05/`，操作步骤见包内 README.md。校验原 beta3 镜像及全部文件，目标脚本另测主机选择、单 Compose、容器及域名健康、版本/摘要拒绝和 additive 迁移回滚边界。
 
 本机无免密 sudo，不能把只读基线检查说成完整部署预检通过。目标机执行者须先运行 `sudo python3 release.py preflight`，成功后才能部署。上传不改变运行镜像、配置或数据库；敏感备份只留目标机私有目录。
+
+部署工具修订：`codex/main-optional-db-backup` 增加 `--skip-database-backup`，仅供操作人明确接受数据库无本次备份的风险时使用。预检与 deploy.sh 均须传入，默认仍备份；去掉数据库空间预算但保留配置、旧镜像备份和镜像导入空间要求，迁移校验不变。backup.json 记录 skipped_by_operator 和空数据库摘要，回滚无需新增参数，仍不恢复或删除数据库。测试覆盖默认备份、空备份拒绝、跳过不调用 pg_dump、不生成 dump、空间仍不足时拒绝和部署参数传递。应用版本和镜像不变；只是部署工具修订，不构成新的应用发布。
