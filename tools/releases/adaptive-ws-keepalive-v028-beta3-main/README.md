@@ -22,6 +22,18 @@ sudo ./deploy.sh
 
 ## 回滚
 
+### 空间不足时显式跳过数据库备份
+
+默认仍备份数据库。经操作人接受风险后，可以改用：
+
+```sh
+sha256sum -c SHA256SUMS && sudo python3 release.py preflight --skip-database-backup && sudo ./deploy.sh --skip-database-backup
+```
+
+预检和部署两次都必须带该参数。只取消数据库 dump 及其空间预算，保留配置、旧镜像备份、迁移检查和镜像导入空间检查；不足时仍拒绝部署。backup.json 明确记录数据库备份已跳过，摘要为 null。本次发布无法提供数据库灾难恢复，应用回滚仍保留业务数据和新增列，不需要数据库 dump。不得把该参数理解为允许磁盘耗尽，也不会自动删除已有备份。回滚命令不变。
+
+### 执行回滚
+
 ```sh
 sudo ./rollback.sh
 ```

@@ -9,6 +9,69 @@ import assemble_package as build_package
 
 
 class DualLegReleaseTests(unittest.TestCase):
+    def test_skip_database_backup_creates_no_dump_and_runs_no_command(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(release, 'run') as run:
+            backup = Path(directory)
+            self.assertEqual(release.backup_database(backup, skip_database_backup=True),
+                             {'database_backup': 'skipped_by_operator', 'database_sha256': None})
+            run.assert_not_called()
+            self.assertFalse((backup / 'database.dump').exists())
+
+    def test_default_database_backup_records_digest_and_rejects_empty_dump(self):
+        with tempfile.TemporaryDirectory() as directory:
+            backup = Path(directory)
+            def dump(args, *, output):
+                self.assertIn('pg_dump', args[-1])
+                output.write(b'synthetic dump')
+            with patch.object(release, 'run', side_effect=dump):
+                meta = release.backup_database(backup)
+            self.assertEqual(meta['database_backup'], 'completed')
+            self.assertEqual(meta['database_sha256'], release.digest(backup / 'database.dump'))
+            with patch.object(release, 'run'), self.assertRaises(AssertionError):
+                release.backup_database(backup)
+
+    def test_preflight_skip_removes_only_database_space_requirement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / '.env').touch()
+            archive = root / 'image.tar.gz'
+            archive.write_bytes(b'image')
+            state = {'Config': {'Image': release.BASE_IMAGE, 'Labels': {
+                'com.docker.compose.project.config_files': str(root / 'docker-compose.yml')}},
+                'Image': release.BASE_ID}
+            def compose(*args):
+                if args[-1] == 'PING':
+                    return 'PONG'
+                if 'pg_database_size' in args[-1]:
+                    return str(1024 ** 3)
+                return ''
+            with patch.object(release, 'DEPLOY', root), \
+                 patch.object(release, 'verify_package', return_value=archive), \
+                 patch.object(release, 'current_container', return_value=state), \
+                 patch.object(release, 'image_id', return_value=release.BASE_ID), \
+                 patch.object(release, 'compose_image', return_value=release.BASE_IMAGE), \
+                 patch.object(release, 'version', return_value=release.BASE_COMMIT), \
+                 patch.object(release, 'healthy'), \
+                 patch.object(release, 'migrations', return_value='baseline'), \
+                 patch.object(release, 'compatible_migrations'), \
+                 patch.object(release, 'compose', side_effect=compose) as commands, \
+                 patch.object(release.shutil, 'disk_usage') as usage:
+                usage.return_value.free = 1024 ** 3
+                with self.assertRaises(AssertionError):
+                    release.check_preflight({})
+                commands.reset_mock()
+                self.assertEqual(release.check_preflight({}, skip_database_backup=True), 'baseline')
+                self.assertFalse(any('pg_database_size' in str(call) for call in commands.call_args_list))
+                usage.return_value.free = 1
+                with self.assertRaises(AssertionError):
+                    release.check_preflight({}, skip_database_backup=True)
+
+    def test_deploy_passes_skip_choice_to_preflight(self):
+        with patch.object(release, 'check_preflight', side_effect=RuntimeError('stop')) as preflight:
+            with self.assertRaises(RuntimeError):
+                release.deploy({}, skip_database_backup=True)
+            preflight.assert_called_once_with({}, skip_database_backup=True)
+
     def test_complete_beta_package_passes_real_verification(self):
         with tempfile.TemporaryDirectory() as directory:
             here = Path(directory)

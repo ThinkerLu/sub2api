@@ -183,7 +183,7 @@ def atomic(path, text):
     temp.replace(path)
 
 
-def check_preflight(manifest):
+def check_preflight(manifest, *, skip_database_backup=False):
     archive = verify_package(manifest)
     assert DEPLOY.is_dir() and (DEPLOY / '.env').is_file(), 'Compose 目录不完整'
     compose('config', '--quiet')
@@ -197,10 +197,15 @@ def check_preflight(manifest):
     assert baseline.strip(), '迁移记录为空'
     compatible_migrations(baseline, baseline, manifest)
     assert compose('exec', '-T', 'redis', 'redis-cli', 'PING').strip() == 'PONG', 'Redis 不可用'
-    size = int(compose('exec', '-T', 'postgres', 'sh', '-ec',
+    size = 0
+    if skip_database_backup:
+        print('警告：显式跳过数据库备份；本次发布无法提供数据库灾难恢复。配置和旧镜像仍备份。', flush=True)
+    else:
+        size = int(compose('exec', '-T', 'postgres', 'sh', '-ec',
                        'exec psql -X -U "$POSTGRES_USER" -d "${POSTGRES_DB:-$POSTGRES_USER}" -Atqc "SELECT pg_database_size(current_database())"').strip())
     needed = int(size * 1.5) + archive.stat().st_size * 3 + 512 * 1024 * 1024
-    assert shutil.disk_usage(DEPLOY).free > needed, '空间不足以备份数据库、旧镜像并导入新镜像'
+    free = shutil.disk_usage(DEPLOY).free
+    assert free > needed, f'空间不足：需要 {needed} 字节，可用 {free} 字节（数据库备份：{not skip_database_backup}；仍需旧镜像备份与新镜像导入空间）'
     return baseline
 
 
@@ -219,8 +224,18 @@ def restore(backup, manifest):
     healthy(BASE_COMMIT)
 
 
-def deploy(manifest):
-    baseline = check_preflight(manifest)
+def backup_database(backup, *, skip_database_backup=False):
+    if skip_database_backup:
+        return {'database_backup': 'skipped_by_operator', 'database_sha256': None}
+    with (backup / 'database.dump').open('wb') as output:
+        run(['docker', 'compose', '-f', str(DEPLOY / 'docker-compose.yml'), 'exec', '-T', 'postgres', 'sh', '-ec',
+             'exec pg_dump -Fc -U "$POSTGRES_USER" -d "${POSTGRES_DB:-$POSTGRES_USER}"'], output=output)
+    assert (backup / 'database.dump').stat().st_size > 0, '数据库备份为空'
+    return {'database_backup': 'completed', 'database_sha256': digest(backup / 'database.dump')}
+
+
+def deploy(manifest, *, skip_database_backup=False):
+    baseline = check_preflight(manifest, skip_database_backup=skip_database_backup)
     archive = HERE / manifest['archive']
     docker('load', '-i', str(archive))
     assert image_id(manifest['image']) in (manifest['image_id'], manifest['image_config_digest']), '新镜像摘要不匹配'
@@ -234,13 +249,10 @@ def deploy(manifest):
         shutil.copy2(DEPLOY / name, backup / name)
         (backup / name).chmod(0o600)
     (backup / 'migrations.before.txt').write_text(baseline)
-    with (backup / 'database.dump').open('wb') as output:
-        run(['docker', 'compose', '-f', str(DEPLOY / 'docker-compose.yml'), 'exec', '-T', 'postgres', 'sh', '-ec',
-             'exec pg_dump -Fc -U "$POSTGRES_USER" -d "${POSTGRES_DB:-$POSTGRES_USER}"'], output=output)
-    assert (backup / 'database.dump').stat().st_size > 0, '数据库备份为空'
+    database_meta = backup_database(backup, skip_database_backup=skip_database_backup)
     docker('save', '-o', str(backup / 'old-image.tar'), BASE_IMAGE)
     meta = {'old_commit': BASE_COMMIT, 'new_commit': manifest['commit'],
-            'old_image_sha256': digest(backup / 'old-image.tar'), 'database_sha256': digest(backup / 'database.dump')}
+            'old_image_sha256': digest(backup / 'old-image.tar'), **database_meta}
     (backup / 'backup.json').write_text(json.dumps(meta, indent=2) + '\n')
     atomic(POINTER, str(backup) + '\n')
     try:
@@ -282,7 +294,11 @@ def rollback(manifest):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=['preflight', 'deploy', 'rollback'])
+    parser.add_argument('--skip-database-backup', action='store_true',
+                        help='显式跳过数据库备份，仍备份配置和旧镜像；不提供数据库灾难恢复')
     args = parser.parse_args()
+    if args.action == 'rollback' and args.skip_database_backup:
+        parser.error('回滚不接受 --skip-database-backup；回滚始终保留业务数据库')
     assert os.geteuid() == 0, '需要在主服务器使用 sudo 运行'
     assert socket.gethostname() == 'vm75142.akkocloud.com', '不是已核对的主服务器'
     os.umask(0o077)
@@ -292,10 +308,10 @@ def main():
         fcntl.flock(baseline_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if args.action == 'preflight':
-            check_preflight(manifest)
+            check_preflight(manifest, skip_database_backup=args.skip_database_backup)
             print('主服务器预检通过，未切换服务。')
         elif args.action == 'deploy':
-            deploy(manifest)
+            deploy(manifest, skip_database_backup=args.skip_database_backup)
         else:
             rollback(manifest)
 
