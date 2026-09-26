@@ -58,20 +58,7 @@ func startAdaptiveServer(t *testing.T, s *OpenAIGatewayService, a *Account, hook
 			return
 		}
 		defer conn.CloseNow()
-		cleanupMemory := func() {}
-		if s.cfg.Gateway.OpenAIWS.DualLegEnabled {
-			cleanupMemory, err = s.BindOpenAIWSDualLegMemory(conn)
-			if err != nil {
-				errs <- err
-				return
-			}
-			defer cleanupMemory()
-		}
-		if s.IsOpenAIWSAdaptive(a) && !s.cfg.Gateway.OpenAIWS.DualLegEnabled {
-			conn.SetReadLimit(-1)
-		} else {
-			conn.SetReadLimit(ResolveOpenAIWSClientReadLimitBytes(s.cfg))
-		}
+		conn.SetReadLimit(ResolveOpenAIWSClientReadLimitBytes(s.cfg))
 		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 		defer cancel()
 		_, first, err := ReadOpenAIWSClientMessage(ctx, conn, 0, coderws.StatusPolicyViolation, "")
@@ -83,7 +70,6 @@ func startAdaptiveServer(t *testing.T, s *OpenAIGatewayService, a *Account, hook
 		c.Request = r.Clone(ctx)
 		c.Request.Header = r.Header.Clone()
 		proxyErr := s.ProxyResponsesWebSocketFromClient(ctx, c, conn, a, "sk-test", first, hooks)
-		cleanupMemory()
 		errs <- proxyErr
 	}))
 	t.Cleanup(server.Close)
@@ -91,8 +77,6 @@ func startAdaptiveServer(t *testing.T, s *OpenAIGatewayService, a *Account, hook
 }
 func adaptiveFixture() (*OpenAIGatewayService, *Account, *stagedPassthroughConn, *adaptiveHTTPUpstream) {
 	cfg := passthroughLifecycleConfig()
-	cfg.Gateway.OpenAIWS.DualLegMemoryBudgetBytes = 1 << 30
-	cfg.Gateway.OpenAIWS.DualLegAccountMemoryBudgetBytes = 512 << 20
 	cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes = 1024
 	cfg.Gateway.OpenAIWS.HTTPBridgeEnabled = false
 	ws := newStagedPassthroughConn()
@@ -226,6 +210,7 @@ func TestAdaptiveCompressedMessageAbove64MiB(t *testing.T) {
 		t.Skip("large compressed websocket integration")
 	}
 	s, a, _, httpUp := adaptiveFixture()
+	s.cfg.Gateway.OpenAIWS.ClientReadLimitBytes = 128 << 20
 	s.cfg.Gateway.OpenAIWS.IngressInterTurnIdleTimeoutSeconds = 30
 	server, _ := startAdaptiveServer(t, s, a, nil)
 	c := dialAdaptive(t, server)
@@ -414,6 +399,7 @@ func TestAdaptiveThresholdBoundary(t *testing.T) {
 func TestAdaptiveChannelMappedPassbackReasoning(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s, account, _, httpUp := adaptiveFixture()
+	account.Extra["openai_apikey_responses_websockets_v2_mode"] = "http_bridge"
 	s.cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes = 1
 	server, _ := startAdaptiveServer(t, s, account, &OpenAIWSIngressHooks{
 		MapRequestModel: func(_ int, model string) (string, error) {
@@ -467,6 +453,7 @@ func (d *adaptiveWarmupDialer) Dial(ctx context.Context, _ string, _ http.Header
 
 func TestAdaptiveWarmupLargeBusinessCompaction(t *testing.T) {
 	s, a, ws, httpUp := adaptiveFixture()
+	s.cfg.Gateway.OpenAIWS.ClientReadLimitBytes = 128 << 20
 	resumed := newStagedPassthroughConn()
 	d := &adaptiveWarmupDialer{conns: make(chan *stagedPassthroughConn, 2)}
 	d.conns <- ws
@@ -519,17 +506,16 @@ func TestAdaptiveWarmupLargeBusinessCompaction(t *testing.T) {
 
 func TestAdaptiveWarmupFailureDoesNotStartHTTP(t *testing.T) {
 	s, a, ws, httpUp := adaptiveFixture()
-	server, errs := startAdaptiveServer(t, s, a, nil)
+	server, _ := startAdaptiveServer(t, s, a, nil)
 	client := dialAdaptive(t, server)
 	writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","generate":false,"input":"warmup"}`)
 	requirePassthroughUpstreamWrite(t, ws, 3*time.Second)
 	ws.Send(`{"type":"response.failed","response":{"id":"resp_bad","error":{"code":"invalid_request_error","message":"bad request"},"usage":{"input_tokens":2,"output_tokens":0}}}`)
-	select {
-	case err := <-errs:
-		require.Error(t, err)
-	case <-time.After(3 * time.Second):
-		t.Fatal("failed warmup did not terminate")
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, event, err := client.Read(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "upstream_execution_unknown", gjson.GetBytes(event, "error.code").String())
 	require.Empty(t, httpUp.snapshot())
 	_ = client.CloseNow()
 }

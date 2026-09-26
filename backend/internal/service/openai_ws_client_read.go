@@ -79,7 +79,7 @@ func readOpenAIWSClientMessage(
 
 	readDone := make(chan openAIWSClientReadResult, 1)
 	go func() {
-		messageType, payload, err := readOpenAIWSMemoryBounded(conn)
+		messageType, payload, err := conn.Read(context.Background())
 		readDone <- openAIWSClientReadResult{messageType: messageType, payload: payload, err: err}
 	}()
 

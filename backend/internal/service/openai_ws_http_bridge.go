@@ -133,10 +133,8 @@ var openAIWSGPTThresholdModels = map[string]struct{}{
 }
 
 func (s *OpenAIGatewayService) openAIWSRouteExceedsThreshold(finalModel string, sizes ...int) bool {
-	if s != nil && s.cfg != nil && (s.cfg.Gateway.OpenAIWS.GPTThresholdRoutingEnabled || s.cfg.Gateway.OpenAIWS.DualLegEnabled) {
-		if _, known := openAIWSGPTThresholdModels[strings.ToLower(strings.TrimSpace(finalModel))]; !known {
-			return false
-		}
+	if _, known := openAIWSGPTThresholdModels[strings.ToLower(strings.TrimSpace(finalModel))]; !known {
+		return false
 	}
 	threshold := s.openAIWSHTTPBridgeThresholdBytes()
 	for _, size := range sizes {
@@ -862,9 +860,6 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		}
 
 		upstreamMessage := []byte(openAICompatPayloadWithEventType(trimmedData, pendingSSEEventType))
-		if err := openAIWSMemoryFromContext(ctx).admitEvent(upstreamMessage); err != nil {
-			return resultWithUsage(), err
-		}
 		if normalized, changed := normalizeCompletedImageGenerationStatus(upstreamMessage); changed {
 			upstreamMessage = normalized
 		}

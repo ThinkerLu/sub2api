@@ -1,5 +1,7 @@
 # WS 严格响应归属与一次性迁移状态
 
+> beta2 更新：新增环境开关、恢复灰度配置和内存预算已移除；以下为 beta1 历史设计。当前行为见 [双链路默认生效](2026-09-26-dual-leg-default-no-budget.md)。
+
 目标版本：`v0.2.8-beta1-dual-leg-thinking-ws`（待发布）。关联开发分支 `codex/dual-leg-thinking-ws-cc` 的 `feat(ws): persist strict response owners and one-shot migration intents` 提交。
 
 ## 目的与使用

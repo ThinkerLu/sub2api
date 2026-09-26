@@ -77,7 +77,7 @@ func newOpenAIWSUnsupportedModelSwitchError(model string) error {
 }
 
 func shouldReportOpenAIWSProxyAccountFailure(err error) bool {
-	return err != nil && !errors.Is(err, errOpenAIWSUnsupportedModelSwitch) && !service.IsOpenAIWSSessionPreemptedError(err) && !service.IsOpenAIWSMemoryAdmissionError(err) && !errors.Is(err, service.ErrOpenAIWSRecoveryRejected)
+	return err != nil && !errors.Is(err, errOpenAIWSUnsupportedModelSwitch) && !service.IsOpenAIWSSessionPreemptedError(err) && !errors.Is(err, service.ErrOpenAIWSRecoveryRejected)
 }
 
 // openAIWSIngressEndedByClient reports whether a finished ingress WebSocket turn
@@ -341,12 +341,10 @@ func openAICompatibleTextTargetAllowed(c *gin.Context, apiKey *service.APIKey, m
 		service.PlatformMiniMax, service.PlatformOpenCodeGo)
 }
 
-// isResponsesWebSocketCompositePlatform 限定 composite 分组在 Responses WebSocket
-// 上可服务的目标平台。CN 供应商（kimi/zhipu/deepseek）刻意排除：其账号无法通过
-// WSv2 ingress 的 transport 过滤，且 WS HTTP 桥没有面向 CN 的 Responses 转换，
-// 放行只会把明确的策略拒绝变成误导性的 "no available account"。
-func isResponsesWebSocketCompositePlatform(platform string, allowProviders ...bool) bool {
-	if len(allowProviders) > 0 && allowProviders[0] && (service.IsCNProvider(platform) || platform == service.PlatformOpenCodeGo) {
+// Platform admission is separate from the scheduler's Responses capability check.
+// Compatible providers may retain downstream WS while using upstream HTTP.
+func isResponsesWebSocketCompositePlatform(platform string) bool {
+	if service.IsCNProvider(platform) || platform == service.PlatformOpenCodeGo {
 		return true
 	}
 	switch platform {
@@ -2398,7 +2396,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		c.Request = c.Request.WithContext(ctx)
 	}
 
-	adaptiveRoute, routeErr := h.gatewayService.OpenAIWSAdaptiveRouteAvailable(ctx, apiKey.GroupID, openAICompatibleRequestPlatform(ctx, apiKey))
+	_, routeErr := h.gatewayService.OpenAIWSAdaptiveRouteAvailable(ctx, apiKey.GroupID, openAICompatibleRequestPlatform(ctx, apiKey))
 	if routeErr != nil {
 		reqLog.Warn("openai.websocket_adaptive_route_lookup_failed", zap.Error(routeErr))
 		h.errorResponse(c, http.StatusServiceUnavailable, "service_unavailable", "Unable to resolve websocket ingress limits")
@@ -2422,27 +2420,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	defer func() {
 		_ = wsConn.CloseNow()
 	}()
-	if h.cfg != nil && h.cfg.Gateway.OpenAIWS.DualLegEnabled {
-		cleanupMemory, memoryErr := h.gatewayService.BindOpenAIWSDualLegMemory(wsConn)
-		if memoryErr != nil {
-			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "websocket memory admission unavailable")
-			return
-		}
-		defer cleanupMemory()
-	}
-	if adaptiveRoute && (h.cfg == nil || !h.cfg.Gateway.OpenAIWS.DualLegEnabled) {
-		wsConn.SetReadLimit(-1)
-	} else {
-		wsConn.SetReadLimit(service.ResolveOpenAIWSClientReadLimitBytes(h.cfg))
-	}
+	wsConn.SetReadLimit(service.ResolveOpenAIWSClientReadLimitBytes(h.cfg))
 
 	firstMessageTimeout := service.ResolveOpenAIWSClientFirstMessageTimeout(h.cfg)
 	msgType, firstMessage, err := service.ReadOpenAIWSClientFirstMessage(ctx, wsConn, firstMessageTimeout, readProgress)
 	if err != nil {
-		if service.IsOpenAIWSMemoryAdmissionError(err) {
-			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "websocket memory reservation rejected")
-			return
-		}
 		if errors.Is(context.Cause(ctx), service.ErrOpenAIWSIngressLeaseLost) {
 			reqLog.Warn("openai.websocket_ingress_lease_lost_before_first_message", zap.Error(err))
 			closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "websocket ingress capacity lease lost; please reconnect")
@@ -2489,7 +2471,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	ctx = c.Request.Context()
 	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
 		platform, ok := service.ResolvedTargetPlatformFromContext(ctx)
-		if !ok || !isResponsesWebSocketCompositePlatform(platform, h.cfg != nil && h.cfg.Gateway.OpenAIWS.DualLegEnabled) {
+		if !ok || !isResponsesWebSocketCompositePlatform(platform) {
 			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "Responses WebSocket API only supports OpenAI-compatible models for composite groups")
 			return
 		}
@@ -2851,9 +2833,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			selection.Account = latest
 			accountReleaseFunc = fastReleaseFunc
 		}
-		if h.gatewayService.IsOpenAIWSAdaptive(account) && (h.cfg == nil || !h.cfg.Gateway.OpenAIWS.DualLegEnabled) {
-			wsConn.SetReadLimit(-1)
-		} else {
+		{
 			limit := service.ResolveOpenAIWSClientReadLimitBytes(h.cfg)
 			wsConn.SetReadLimit(limit)
 			if int64(len(wsAttemptMessage.load())) > limit {
@@ -3116,7 +3096,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					turnErr,
 				)
 				if turnErr != nil {
-					hasObservedDualLegUsage := h.cfg != nil && h.cfg.Gateway.OpenAIWS.DualLegEnabled && result != nil && (result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0 || result.Usage.CacheReadInputTokens > 0 || result.Usage.CacheCreationInputTokens > 0)
+					hasObservedDualLegUsage := result != nil && (result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0 || result.Usage.CacheReadInputTokens > 0 || result.Usage.CacheCreationInputTokens > 0)
 					if result == nil || (result.ImageCount <= 0 && !hasObservedDualLegUsage) {
 						return
 					}

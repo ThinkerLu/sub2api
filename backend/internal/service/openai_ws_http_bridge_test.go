@@ -714,7 +714,7 @@ func TestOpenAIWSHTTPBridgeDecisionKeepsSmallFramesOnWS(t *testing.T) {
 	}
 
 	require.False(t, svc.shouldBridgeOpenAIWSHTTP(nil, 99, ""))
-	require.True(t, svc.shouldBridgeOpenAIWSHTTP(nil, 100, ""))
+	require.True(t, svc.shouldBridgeOpenAIWSHTTP(nil, 100, "", "gpt-5.1"))
 	require.False(t, svc.shouldBridgeOpenAIWSHTTP(nil, 1000, "resp_existing"))
 
 	svc.cfg.Gateway.OpenAIWS.HTTPBridgeEnabled = false
@@ -754,7 +754,7 @@ func TestOpenAIWSPassthroughFirstMessageBridgeDecision(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, svc.shouldBridgeOpenAIWSPassthroughFirstMessage(nil, []byte(tt.payload)))
+			require.Equal(t, tt.want, svc.shouldBridgeOpenAIWSPassthroughFirstMessage(nil, []byte(tt.payload), "gpt-5.1"))
 		})
 	}
 }
@@ -763,7 +763,6 @@ func TestGPTThresholdRoutingUsesFinalModelAndLargestPayload(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
 		OpenAIWS: config.GatewayOpenAIWSConfig{
 			HTTPBridgeEnabled: true, HTTPBridgeThresholdBytes: 100,
-			GPTThresholdRoutingEnabled: true,
 		},
 	}}}
 	for _, tt := range []struct {
@@ -793,8 +792,7 @@ func TestGPTThresholdRoutingUsesFinalModelAndLargestPayload(t *testing.T) {
 	require.False(t, svc.shouldBridgeOpenAIWSPassthroughFirstMessage(account, []byte(`{"type":"response.create","model":"reverse","input":"`+strings.Repeat("x", 100)+`"}`)))
 	require.True(t, svc.shouldBridgeOpenAIWSPassthroughFirstMessage(account, []byte(`{"type":"response.create","model":"reverse","input":"`+strings.Repeat("x", 100)+`"}`), "gpt-6-astra"))
 	require.False(t, svc.shouldBridgeOpenAIWSPassthroughFirstMessage(account, []byte(`{"type":"response.create","model":"alias","input":"`+strings.Repeat("x", 100)+`"}`), "deepseek-v4-pro"))
-	svc.cfg.Gateway.OpenAIWS.GPTThresholdRoutingEnabled = false
-	require.True(t, svc.openAIWSRouteExceedsThreshold("deepseek-v4-pro", 100))
+	require.False(t, svc.openAIWSRouteExceedsThreshold("deepseek-v4-pro", 100))
 }
 
 func TestProxyOpenAIWSHTTPBridgeTurnTransportErrorFailoverSafety(t *testing.T) {

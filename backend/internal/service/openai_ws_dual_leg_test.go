@@ -34,8 +34,6 @@ func (*dualLegFailedDialer) Dial(context.Context, string, http.Header, string) (
 
 func TestDualLegAlternatesUpstreamAtTurnBoundaries(t *testing.T) {
 	s, account, firstWS, httpUp := adaptiveFixture()
-	s.cfg.Gateway.OpenAIWS.DualLegEnabled = true
-	s.cfg.Gateway.OpenAIWS.GPTThresholdRoutingEnabled = true
 	secondWS := newStagedPassthroughConn()
 	dialer := &adaptiveWarmupDialer{conns: make(chan *stagedPassthroughConn, 2)}
 	dialer.conns <- firstWS
@@ -93,7 +91,6 @@ func TestDualLegAlternatesUpstreamAtTurnBoundaries(t *testing.T) {
 
 func TestDualLegHTTPUnknownSubmissionCannotFailover(t *testing.T) {
 	s, account, _, _ := adaptiveFixture()
-	s.cfg.Gateway.OpenAIWS.DualLegEnabled = true
 	s.cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes = 1
 	upstream := &dualLegFailFirstHTTP{}
 	s.httpUpstream = upstream
@@ -117,7 +114,6 @@ func TestDualLegHTTPUnknownSubmissionCannotFailover(t *testing.T) {
 
 func TestDualLegHandshakeFailureFallsBackBeforeSubmission(t *testing.T) {
 	s, account, _, httpUp := adaptiveFixture()
-	s.cfg.Gateway.OpenAIWS.DualLegEnabled = true
 	s.openaiWSPassthroughDialer = &dualLegFailedDialer{}
 	server, _ := startAdaptiveServer(t, s, account, nil)
 	client := dialAdaptive(t, server)
@@ -128,7 +124,6 @@ func TestDualLegHandshakeFailureFallsBackBeforeSubmission(t *testing.T) {
 
 func TestDualLegSameAccountProtocolSwitchRebuildsPortableHistory(t *testing.T) {
 	s, account, first, httpUp := adaptiveFixture()
-	s.cfg.Gateway.OpenAIWS.DualLegEnabled = true
 	second := newStagedPassthroughConn()
 	dialer := &adaptiveWarmupDialer{conns: make(chan *stagedPassthroughConn, 2)}
 	dialer.conns <- first
@@ -154,7 +149,6 @@ func TestDualLegSameAccountProtocolSwitchRebuildsPortableHistory(t *testing.T) {
 
 func TestDualLegGPTCountsOriginalFrameWhitespace(t *testing.T) {
 	s, a, ws, httpUp := adaptiveFixture()
-	s.cfg.Gateway.OpenAIWS.DualLegEnabled = true
 	s.cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes = 200
 	ws.Send(`{"type":"response.completed","response":{"id":"resp_wrong_route","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}`)
 	server, _ := startAdaptiveServer(t, s, a, nil)
@@ -167,7 +161,6 @@ func TestDualLegGPTCountsOriginalFrameWhitespace(t *testing.T) {
 
 func TestDualLegHandshakeChangeRebuildsBeforeSubmission(t *testing.T) {
 	s, a, first, httpUp := adaptiveFixture()
-	s.cfg.Gateway.OpenAIWS.DualLegEnabled = true
 	second := newStagedPassthroughConn()
 	dialer := &adaptiveWarmupDialer{conns: make(chan *stagedPassthroughConn, 2)}
 	dialer.conns <- first
@@ -216,7 +209,6 @@ func TestDualLegCommitStateNeverBecomesRetrySafeAgain(t *testing.T) {
 
 func TestDualLegCommittedCacheErrorDoesNotRequestClientReplay(t *testing.T) {
 	s, account, ws, httpUp := adaptiveFixture()
-	s.cfg.Gateway.OpenAIWS.DualLegEnabled = true
 	settled := make(chan *OpenAIForwardResult, 1)
 	server, _ := startAdaptiveServer(t, s, account, &OpenAIWSIngressHooks{AfterTurn: func(_ int, r *OpenAIForwardResult, _ error) { settled <- r }})
 	client := dialAdaptive(t, server)
