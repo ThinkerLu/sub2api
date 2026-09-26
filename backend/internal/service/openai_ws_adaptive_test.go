@@ -80,6 +80,8 @@ func startAdaptiveServer(t *testing.T, s *OpenAIGatewayService, a *Account, hook
 }
 func adaptiveFixture() (*OpenAIGatewayService, *Account, *stagedPassthroughConn, *adaptiveHTTPUpstream) {
 	cfg := passthroughLifecycleConfig()
+	cfg.Gateway.OpenAIWS.DualLegMemoryBudgetBytes = 1 << 30
+	cfg.Gateway.OpenAIWS.DualLegAccountMemoryBudgetBytes = 512 << 20
 	cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes = 1024
 	cfg.Gateway.OpenAIWS.HTTPBridgeEnabled = false
 	ws := newStagedPassthroughConn()

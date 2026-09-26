@@ -2417,7 +2417,15 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	defer func() {
 		_ = wsConn.CloseNow()
 	}()
-	if adaptiveRoute {
+	if adaptiveRoute && h.cfg != nil && h.cfg.Gateway.OpenAIWS.DualLegEnabled {
+		cleanupMemory, memoryErr := h.gatewayService.BindOpenAIWSDualLegMemory(wsConn)
+		if memoryErr != nil {
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "websocket memory admission unavailable")
+			return
+		}
+		defer cleanupMemory()
+	}
+	if adaptiveRoute && (h.cfg == nil || !h.cfg.Gateway.OpenAIWS.DualLegEnabled) {
 		wsConn.SetReadLimit(-1)
 	} else {
 		wsConn.SetReadLimit(service.ResolveOpenAIWSClientReadLimitBytes(h.cfg))
@@ -2820,7 +2828,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			selection.Account = latest
 			accountReleaseFunc = fastReleaseFunc
 		}
-		if h.gatewayService.IsOpenAIWSAdaptive(account) {
+		if h.gatewayService.IsOpenAIWSAdaptive(account) && (h.cfg == nil || !h.cfg.Gateway.OpenAIWS.DualLegEnabled) {
 			wsConn.SetReadLimit(-1)
 		} else {
 			limit := service.ResolveOpenAIWSClientReadLimitBytes(h.cfg)

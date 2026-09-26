@@ -123,6 +123,19 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(ctx context.Con
 	}
 	reader, _ := ctx.Value(openAIWSAdaptiveReaderKey{}).(*openAIWSAdaptiveReader)
 	if s.IsOpenAIWSAdaptive(account) && clientConn != nil {
+		if s.cfg.Gateway.OpenAIWS.DualLegEnabled {
+			cleanupMemory, err := s.BindOpenAIWSDualLegMemory(clientConn)
+			if err != nil {
+				return err
+			}
+			defer cleanupMemory()
+			value, _ := openAIWSMemorySessions.Load(clientConn)
+			memory := value.(*openAIWSMemorySession)
+			if err := memory.bindAccount(account.ID); err != nil {
+				return err
+			}
+			ctx = context.WithValue(ctx, openAIWSMemoryContextKey{}, memory)
+		}
 		copied := OpenAIWSIngressHooks{}
 		if hooks != nil {
 			copied = *hooks
@@ -130,7 +143,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(ctx context.Con
 		copied.adaptiveUpstream = &openAIWSAdaptiveUpstream{}
 		hooks = &copied
 		defer copied.adaptiveUpstream.close()
-		clientConn.SetReadLimit(-1)
+		if s.cfg.Gateway.OpenAIWS.DualLegEnabled {
+			clientConn.SetReadLimit(ResolveOpenAIWSClientReadLimitBytes(s.cfg))
+		} else {
+			clientConn.SetReadLimit(-1)
+		}
 		if reader == nil {
 			var cleanup func()
 			ctx, cleanup = s.BeginOpenAIWSAdaptiveSession(ctx, clientConn)

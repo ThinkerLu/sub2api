@@ -130,7 +130,7 @@ var openAIWSGPTThresholdModels = map[string]struct{}{
 }
 
 func (s *OpenAIGatewayService) openAIWSRouteExceedsThreshold(finalModel string, sizes ...int) bool {
-	if s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIWS.GPTThresholdRoutingEnabled {
+	if s != nil && s.cfg != nil && (s.cfg.Gateway.OpenAIWS.GPTThresholdRoutingEnabled || s.cfg.Gateway.OpenAIWS.DualLegEnabled) {
 		if _, known := openAIWSGPTThresholdModels[strings.ToLower(strings.TrimSpace(finalModel))]; !known {
 			return false
 		}
@@ -643,8 +643,12 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if buildErr != nil {
 			return nil, buildErr
 		}
+		openAIWSCommitFromContext(ctx).advance(openAIWSTurnSentUnknown)
 		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 		if err != nil {
+			if openAIWSCommitFromContext(ctx) != nil {
+				return nil, fmt.Errorf("upstream HTTP submission outcome unknown: %w", err)
+			}
 			if turn == 1 {
 				return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 			}
@@ -672,7 +676,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if retryErr != nil {
 			return nil, fmt.Errorf("normalize websocket http bridge rejected field retry: %w", retryErr)
 		}
-		if changed && rejectedFieldRetryState.Allow(retryBody) {
+		if changed && openAIWSCommitFromContext(ctx) == nil && rejectedFieldRetryState.Allow(retryBody) {
 			logOpenAIWSModeInfo(
 				"ingress_ws_http_bridge_rejected_field_retry account_id=%d turn=%d reason=%s",
 				account.ID,
@@ -888,6 +892,11 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if s.toolCorrector != nil && openAIWSEventMayContainToolCalls(eventType) && openAIWSMessageLikelyContainsToolCalls(upstreamMessage) {
 			if corrected, changed := s.toolCorrector.CorrectToolCallsInSSEBytes(upstreamMessage); changed {
 				upstreamMessage = corrected
+			}
+		}
+		if eventType == "response.output_item.done" || eventType == "response.completed" || eventType == "response.done" {
+			if err := openAIWSMemoryFromContext(ctx).growWorking(int64(len(upstreamMessage))); err != nil {
+				return nil, err
 			}
 		}
 		replayCollector.AddEvent(eventType, upstreamMessage)

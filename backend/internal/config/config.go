@@ -1286,6 +1286,10 @@ type GatewayOpenAIWSConfig struct {
 	HTTPBridgeThresholdBytes int64 `mapstructure:"http_bridge_threshold_bytes"`
 	// GPTThresholdRoutingEnabled: 只对已知最终 GPT 模型按最大候选体积应用桥接阈值；默认关闭。
 	GPTThresholdRoutingEnabled bool `mapstructure:"gpt_threshold_routing_enabled"`
+	// DualLegEnabled keeps adaptive sessions in a per-turn HTTP/WS routing loop.
+	DualLegEnabled                  bool  `mapstructure:"dual_leg_enabled"`
+	DualLegMemoryBudgetBytes        int64 `mapstructure:"dual_leg_memory_budget_bytes"`
+	DualLegAccountMemoryBudgetBytes int64 `mapstructure:"dual_leg_account_memory_budget_bytes"`
 
 	// Feature 开关：v2 优先于 v1
 	ResponsesWebsockets   bool `mapstructure:"responses_websockets"`
@@ -2424,6 +2428,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_ws.http_bridge_enabled", true)
 	viper.SetDefault("gateway.openai_ws.http_bridge_threshold_bytes", 15*1024*1024)
 	viper.SetDefault("gateway.openai_ws.gpt_threshold_routing_enabled", false)
+	viper.SetDefault("gateway.openai_ws.dual_leg_enabled", false)
+	viper.SetDefault("gateway.openai_ws.dual_leg_memory_budget_bytes", 0)
+	viper.SetDefault("gateway.openai_ws.dual_leg_account_memory_budget_bytes", 0)
 	viper.SetDefault("gateway.openai_ws.responses_websockets", false)
 	viper.SetDefault("gateway.openai_ws.responses_websockets_v2", true)
 	viper.SetDefault("gateway.openai_ws.max_conns_per_account", 128)
@@ -3486,6 +3493,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.OpenAIWS.HTTPBridgeThresholdBytes < 0 {
 		return fmt.Errorf("gateway.openai_ws.http_bridge_threshold_bytes must be non-negative")
+	}
+	if c.Gateway.OpenAIWS.DualLegEnabled {
+		ws := c.Gateway.OpenAIWS
+		if !ws.ModeRouterV2Enabled || ws.DualLegMemoryBudgetBytes <= 0 || ws.DualLegAccountMemoryBudgetBytes <= 0 || ws.DualLegAccountMemoryBudgetBytes > ws.DualLegMemoryBudgetBytes {
+			return fmt.Errorf("dual_leg_enabled requires mode_router_v2_enabled and positive account/process memory budgets with account <= process")
+		}
 	}
 	if c.Gateway.OpenAIWS.HTTPBridgeEnabled && c.Gateway.OpenAIWS.HTTPBridgeThresholdBytes == 0 {
 		return fmt.Errorf("gateway.openai_ws.http_bridge_threshold_bytes must be positive when http_bridge_enabled is true")
