@@ -212,6 +212,32 @@ func appendUpstreamTransportWhereCondition(conditions []string, args []any, upst
 	return conditions, args
 }
 
+func appendIngressTransportWhereCondition(conditions []string, args []any, transport *int16, alias string) ([]string, []any) {
+	if transport == nil {
+		return conditions, args
+	}
+	column := "ingress_transport"
+	if alias != "" {
+		column = alias + "." + column
+	}
+	return append(conditions, fmt.Sprintf("%s = $%d", column, len(args)+1)), append(args, *transport)
+}
+
+func secondUsageIngressTransport(values []*int16) *int16 {
+	if len(values) > 1 {
+		return values[1]
+	}
+	return nil
+}
+
+func appendIngressTransportQueryFilter(query string, args []any, value *int16, alias string) (string, []any) {
+	conditions, args := appendIngressTransportWhereCondition(nil, args, value, alias)
+	if len(conditions) == 0 {
+		return query, args
+	}
+	return query + " AND " + conditions[0], args
+}
+
 func appendNativeCompactionV2WhereCondition(conditions []string, args []any, nativeCompactionV2 *bool, alias string) ([]string, []any) {
 	if nativeCompactionV2 == nil {
 		return conditions, args

@@ -20,6 +20,7 @@ import (
 )
 
 type openAIWSClientFrameConn struct {
+	retainClient         bool
 	adaptiveReader       *openAIWSAdaptiveReader
 	conn                 *coderws.Conn
 	controlCtx           context.Context
@@ -715,6 +716,9 @@ func (c *openAIWSClientFrameConn) Close() error {
 	if c == nil || c.conn == nil {
 		return nil
 	}
+	if c.retainClient {
+		return nil
+	}
 	_ = c.conn.Close(coderws.StatusNormalClosure, "")
 	_ = c.conn.CloseNow()
 	return nil
@@ -950,6 +954,25 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		retained = hooks.adaptiveUpstream
 	}
 	reused := retained != nil && retained.conn != nil
+	fingerprint := openAIWSHandshakeFingerprint(wsURL, proxyURL, capturedSessionModel, gjson.GetBytes(firstClientMessage, "service_tier").String(), headers)
+	if reused && openAIWSCommitFromContext(ctx) != nil && retained.handshakeFingerprint != "" && retained.handshakeFingerprint != fingerprint {
+		retained.close()
+		return errOpenAIWSAdaptiveReplayRequired
+	}
+	var releaseSocket func()
+	if !reused && openAIWSMemoryFromContext(ctx) != nil {
+		limit := (&openAIWSConnPool{cfg: s.cfg}).effectiveMaxConnsByAccount(account)
+		var err error
+		releaseSocket, err = openAIWSMemoryFromContext(ctx).reserveSocket(limit)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if releaseSocket != nil {
+				releaseSocket()
+			}
+		}()
+	}
 	if reused {
 		upstreamConn, statusCode, handshakeHeaders = retained.conn, retained.status, retained.headers
 	}
@@ -984,6 +1007,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			truncateOpenAIWSLogValue(err.Error(), openAIWSLogValueMaxLen),
 		)
 		s.handleOpenAIWSDialTransientFailure(ctx, account, capturedSessionModel, dialErr)
+		if openAIWSCommitFromContext(ctx) != nil {
+			return dialErr
+		}
 		if statusCode == http.StatusTooManyRequests {
 			s.persistOpenAIWSRateLimitSignal(ctx, account, handshakeHeaders, nil, "rate_limit_exceeded", "rate_limit_error", strings.TrimSpace(err.Error()), capturedSessionModel)
 			return s.newOpenAIWSRateLimitFailoverError(account, handshakeHeaders, nil, err.Error())
@@ -992,15 +1018,20 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 	if retained != nil {
 		retained.conn, retained.status, retained.headers = upstreamConn, statusCode, handshakeHeaders
+		retained.handshakeFingerprint = openAIWSHandshakeFingerprint(wsURL, proxyURL, capturedSessionModel, gjson.GetBytes(firstClientMessage, "service_tier").String(), headers)
+		if releaseSocket != nil {
+			retained.releaseReservation = releaseSocket
+			releaseSocket = nil
+		}
 	}
 	defer func() {
 		if retained == nil {
 			_ = upstreamConn.Close()
-		} else if !hooks.adaptiveWarmup {
+		} else if !hooks.adaptiveSingleTurn {
 			retained.close()
 		}
 	}()
-	logOpenAIWSV2Passthrough("relay_connection_selected account_id=%d reused=%v warmup=%v", account.ID, reused, hooks != nil && hooks.adaptiveWarmup)
+	logOpenAIWSV2Passthrough("relay_connection_selected account_id=%d reused=%v single_turn=%v", account.ID, reused, hooks != nil && hooks.adaptiveSingleTurn)
 	if !reused {
 		logOpenAIWSV2Passthrough(
 			"relay_dial_ok account_id=%d status_code=%d upstream_request_id=%s",
@@ -1055,6 +1086,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	turnLifecycle := newOpenAIWSPassthroughTurnLifecycle(true)
 	var acceptedTurnStartedAt atomic.Pointer[time.Time]
 	clientFrameConn := &openAIWSClientFrameConn{
+		retainClient:         openAIWSCommitFromContext(ctx) != nil,
 		conn:                 clientConn,
 		controlCtx:           ctx,
 		interTurnIdleTimeout: s.openAIWSIngressInterTurnIdleTimeout(),
@@ -1102,7 +1134,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			}
 			responsesLite := isResponseCreate && isOpenAIResponsesLiteWebSocketPayload(payload)
 			if isResponseCreate {
-				if normalized, compatibilityChanged, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(payload, account, responsesLite); normalizeErr != nil {
+				if normalized, compatibilityChanged, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBodyWithDeferredReasoning(payload, account, responsesLite, true); normalizeErr != nil {
 					return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", normalizeErr)
 				} else if compatibilityChanged {
 					payload = normalized
@@ -1199,6 +1231,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if isResponseCreate && model != "" && model != strings.TrimSpace(gjson.GetBytes(payload, "model").String()) {
 				payload = s.ReplaceModelInBody(payload, model)
 			}
+			if isResponseCreate {
+				if normalized, changed, normalizeErr := normalizeOpenAIResponsesFinalWSReasoning(payload, account, model); normalizeErr != nil {
+					return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket reasoning payload", normalizeErr)
+				} else if changed {
+					payload = normalized
+				}
+			}
 			out, blocked, policyErr := s.applyOpenAIFastPolicyToWSResponseCreate(ctx, account, model, payload)
 			// 多轮 passthrough usage：仅在成功（non-block / non-err）
 			// 的 response.create 帧上更新 usageMeta，使用
@@ -1247,6 +1286,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	upstreamFirstMessageSent := false
 	currentTraffic.Load().AddIngressBodyBytes(len(firstClientMessage))
 	firstWriteCtx, cancelFirstWrite := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
+	openAIWSCommitFromContext(ctx).advance(openAIWSTurnSentUnknown)
 	firstWriteErr := trafficUpstreamFrameConn.WriteFrame(firstWriteCtx, coderws.MessageText, firstClientMessage)
 	cancelFirstWrite()
 	if firstWriteErr != nil {
@@ -1284,7 +1324,17 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		UpstreamConn:       trafficUpstreamFrameConn,
 		FirstClientMessage: firstClientMessage,
 		Options: openaiwsv2.RelayOptions{
-			SingleTurn:                 hooks != nil && hooks.adaptiveWarmup,
+			SingleTurn:              hooks != nil && hooks.adaptiveSingleTurn,
+			SingleTurnErrorTerminal: openAIWSCommitFromContext(ctx) != nil,
+			TransformClientEvent: func(kind coderws.MessageType, payload []byte) []byte {
+				if openAIWSCommitFromContext(ctx) != nil && kind == coderws.MessageText {
+					event := gjson.GetBytes(payload, "type").String()
+					if (event == "error" || event == "response.failed") && GetOpsCyberPolicy(c) == nil {
+						return openAIWSUnknownExecutionEvent()
+					}
+				}
+				return payload
+			},
 			RetainUpstreamOnSingleTurn: retained != nil,
 			WriteTimeout:               s.openAIWSWriteTimeout(),
 			FirstTurnStartedAt:         firstTurnStartedAt,
@@ -1360,8 +1410,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				}
 			},
 			BeforeClientWrite: func(msgType coderws.MessageType, payload []byte) {
-				if hooks != nil && hooks.adaptiveWarmupCollector != nil && msgType == coderws.MessageText {
-					hooks.adaptiveWarmupCollector.AddEvent(gjson.GetBytes(payload, "type").String(), payload)
+				openAIWSCommitFromContext(ctx).advance(openAIWSTurnExecuting)
+				if hooks != nil && hooks.adaptiveTurnCollector != nil && msgType == coderws.MessageText {
+					hooks.adaptiveTurnCollector.AddEvent(gjson.GetBytes(payload, "type").String(), payload)
 				}
 				if msgType == coderws.MessageText && openAIWSPassthroughIsTerminalOutput(payload) {
 					turnLifecycle.beginTerminalWrite()
@@ -1377,7 +1428,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				}
 			},
 			BeforeRelayCancel: func(exit openaiwsv2.RelayExit) {
-				if hooks != nil && hooks.adaptiveWarmup && exit.Stage == "single_turn_completed" {
+				if openAIWSCommitFromContext(ctx) != nil {
+					return
+				}
+				if hooks != nil && hooks.adaptiveSingleTurn && exit.Stage == "single_turn_completed" {
 					return
 				}
 				if context.Cause(ctx) != nil {
@@ -1395,6 +1449,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				_ = clientConn.CloseNow()
 			},
 			BeforeWriteClient: func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) error {
+				if err := openAIWSMemoryFromContext(ctx).admitEvent(payload); err != nil {
+					return err
+				}
 				if msgType != coderws.MessageText {
 					return nil
 				}
@@ -1403,6 +1460,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					failureAccountSideEffectsApplied = false
 				}
 				if (eventType == "error" || eventType == "response.failed") && markOpenAIWSV2PassthroughCyberPolicy(c, payload) {
+					return nil
+				}
+				if openAIWSCommitFromContext(ctx) != nil && (eventType == "error" || eventType == "response.failed") {
+					s.handleOpenAIWSFailureAccountSideEffects(ctx, account, capturedSessionModel, handshakeHeaders, payload)
 					return nil
 				}
 				errCodeRaw, errTypeRaw, errMsgRaw := parseOpenAIWSErrorEventFields(payload)

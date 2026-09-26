@@ -179,6 +179,7 @@ type UsageLog struct {
 	Stream             bool
 	OpenAIWSMode       bool
 	UpstreamTransport  int16
+	IngressTransport   int16
 	NativeCompactionV2 bool
 	DurationMs         *int
 	FirstTokenMs       *int
@@ -247,6 +248,9 @@ func (u *UsageLog) SyncRequestTypeAndLegacyFields() {
 // Usage transport is independent of the legacy ingress request type. Zero is
 // deliberately unknown so migrations do not invent transport for old records.
 const (
+	UsageIngressTransportUnknown    int16 = 0
+	UsageIngressTransportHTTP       int16 = 1
+	UsageIngressTransportWebSocket  int16 = 2
 	UsageUpstreamTransportUnknown   int16 = 0
 	UsageUpstreamTransportHTTP      int16 = 1
 	UsageUpstreamTransportWebSocket int16 = 2
@@ -258,4 +262,12 @@ func ParseUsageUpstreamTransport(raw string) (int16, error) {
 		return 0, fmt.Errorf("invalid upstream_transport, allowed values: 0, 1, 2")
 	}
 	return int16(n), nil
+}
+
+func ParseUsageIngressTransport(raw string) (int16, error) {
+	value, err := ParseUsageUpstreamTransport(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid ingress_transport, allowed values: 0, 1, 2")
+	}
+	return value, nil
 }

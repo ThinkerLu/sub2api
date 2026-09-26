@@ -58,14 +58,23 @@ func startAdaptiveServer(t *testing.T, s *OpenAIGatewayService, a *Account, hook
 			return
 		}
 		defer conn.CloseNow()
-		if s.IsOpenAIWSAdaptive(a) {
+		cleanupMemory := func() {}
+		if s.cfg.Gateway.OpenAIWS.DualLegEnabled {
+			cleanupMemory, err = s.BindOpenAIWSDualLegMemory(conn)
+			if err != nil {
+				errs <- err
+				return
+			}
+			defer cleanupMemory()
+		}
+		if s.IsOpenAIWSAdaptive(a) && !s.cfg.Gateway.OpenAIWS.DualLegEnabled {
 			conn.SetReadLimit(-1)
 		} else {
 			conn.SetReadLimit(ResolveOpenAIWSClientReadLimitBytes(s.cfg))
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 		defer cancel()
-		_, first, err := conn.Read(ctx)
+		_, first, err := ReadOpenAIWSClientMessage(ctx, conn, 0, coderws.StatusPolicyViolation, "")
 		if err != nil {
 			errs <- err
 			return
@@ -73,13 +82,17 @@ func startAdaptiveServer(t *testing.T, s *OpenAIGatewayService, a *Account, hook
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = r.Clone(ctx)
 		c.Request.Header = r.Header.Clone()
-		errs <- s.ProxyResponsesWebSocketFromClient(ctx, c, conn, a, "sk-test", first, hooks)
+		proxyErr := s.ProxyResponsesWebSocketFromClient(ctx, c, conn, a, "sk-test", first, hooks)
+		cleanupMemory()
+		errs <- proxyErr
 	}))
 	t.Cleanup(server.Close)
 	return server, errs
 }
 func adaptiveFixture() (*OpenAIGatewayService, *Account, *stagedPassthroughConn, *adaptiveHTTPUpstream) {
 	cfg := passthroughLifecycleConfig()
+	cfg.Gateway.OpenAIWS.DualLegMemoryBudgetBytes = 1 << 30
+	cfg.Gateway.OpenAIWS.DualLegAccountMemoryBudgetBytes = 512 << 20
 	cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes = 1024
 	cfg.Gateway.OpenAIWS.HTTPBridgeEnabled = false
 	ws := newStagedPassthroughConn()
@@ -396,6 +409,25 @@ func TestAdaptiveThresholdBoundary(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAdaptiveChannelMappedPassbackReasoning(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s, account, _, httpUp := adaptiveFixture()
+	s.cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes = 1
+	server, _ := startAdaptiveServer(t, s, account, &OpenAIWSIngressHooks{
+		MapRequestModel: func(_ int, model string) (string, error) {
+			require.Equal(t, "channel-alias", model)
+			return "deepseek-v4-pro", nil
+		},
+	})
+	client := dialAdaptive(t, server)
+	writeAdaptive(t, client, `{"type":"response.create","model":"channel-alias","store":false,"input":[{"type":"reasoning","content":[{"type":"reasoning_text","text":"keep across mapping"}]},{"type":"message","role":"user","content":"hello"}]}`)
+	readAdaptiveCompleted(t, client)
+	requests := httpUp.snapshot()
+	require.Len(t, requests, 1)
+	require.Equal(t, "deepseek-v4-pro", gjson.GetBytes(requests[0], "model").String())
+	require.Equal(t, "keep across mapping", gjson.GetBytes(requests[0], "input.0.content.0.text").String())
 }
 
 func TestAdaptiveWarmupDoesNotCommitPassthrough(t *testing.T) {

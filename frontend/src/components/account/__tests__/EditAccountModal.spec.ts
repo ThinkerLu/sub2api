@@ -1495,6 +1495,20 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_oauth_responses_websockets_v2_enabled).toBe(true)
   })
 
+  it('loads and edits provider WS mode and protocol profile', async () => {
+    const account = buildAccount()
+    account.platform = 'deepseek'
+    account.credentials = { api_key: 'synthetic-key', base_url: 'https://provider.example', model_mapping: { 'deepseek-v4-pro': 'deepseek-v4-pro' } }
+    account.extra = { responses_ws_mode: 'adaptive', responses_ws_profile: 'openai_responses_v2', responses_ws_url: 'wss://provider.example/original' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    expect((wrapper.get('[data-testid="edit-openai-ws-mode-select"]').element as HTMLSelectElement).value).toBe('adaptive')
+    await wrapper.get('[data-testid="responses-ws-endpoint"]').setValue('wss://provider.example/updated')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({ responses_ws_mode: 'adaptive', responses_ws_profile: 'openai_responses_v2', responses_ws_url: 'wss://provider.example/updated' })
+  })
+
   it('allows saving apikey account when backend redacted api_key but credentials_status reports it exists', async () => {
     // 新前端 + 新后端：响应已脱敏，credentials 里没有 api_key，credentials_status.has_api_key=true
     const account = buildAccount()

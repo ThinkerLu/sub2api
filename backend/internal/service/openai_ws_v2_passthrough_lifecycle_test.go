@@ -266,6 +266,49 @@ func TestPassthroughLifecycle_LaterTurnPreOutputRateLimitRequestsReconnect(t *te
 	}
 }
 
+func TestPassthroughLifecycle_LaterTurnChannelMappedPassbackReasoning(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	controlCtx, cancelControl := context.WithCancelCause(context.Background())
+	defer cancelControl(context.Canceled)
+	upstream := newStagedPassthroughConn()
+	server, serverErr := startPassthroughLifecycleServerWithHooks(t, controlCtx,
+		newPassthroughLifecycleService(passthroughLifecycleConfig(), upstream),
+		passthroughLifecycleAccount(), func(*gin.Context) *OpenAIWSIngressHooks {
+			return &OpenAIWSIngressHooks{MapRequestModel: func(_ int, model string) (string, error) {
+				if model == "channel-alias" {
+					return "deepseek-v4-pro", nil
+				}
+				return model, nil
+			}}
+		})
+	defer server.Close()
+	client := dialPassthroughLifecycleClient(t, server)
+	defer func() { _ = client.CloseNow() }()
+	first := requirePassthroughUpstreamWrite(t, upstream, time.Second)
+	require.Equal(t, "gpt-5.1", gjson.GetBytes(first, "model").String())
+	upstream.Send(`{"type":"response.completed","response":{"id":"resp_first","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`)
+	_, err := readPassthroughLifecycleFrame(t, client, time.Second)
+	require.NoError(t, err)
+	second := `{"type":"response.create","model":"channel-alias","store":false,"input":[{"type":"reasoning","content":[{"type":"reasoning_text","text":"second turn thinking"}]},{"type":"message","role":"user","content":"hello"}]}`
+	writeCtx, cancelWrite := context.WithTimeout(context.Background(), time.Second)
+	err = client.Write(writeCtx, coderws.MessageText, []byte(second))
+	cancelWrite()
+	require.NoError(t, err)
+	forwarded := requirePassthroughUpstreamWrite(t, upstream, time.Second)
+	require.Equal(t, "deepseek-v4-pro", gjson.GetBytes(forwarded, "model").String())
+	require.Equal(t, "second turn thinking", gjson.GetBytes(forwarded, "input.0.content.0.text").String())
+	upstream.Send(`{"type":"response.completed","response":{"id":"resp_second","model":"deepseek-v4-pro","usage":{"input_tokens":1,"output_tokens":1}}}`)
+	_, err = readPassthroughLifecycleFrame(t, client, time.Second)
+	require.NoError(t, err)
+	require.NoError(t, client.CloseNow())
+	cancelControl(context.Canceled)
+	select {
+	case <-serverErr:
+	case <-time.After(3 * time.Second):
+		t.Fatal("passthrough server did not exit")
+	}
+}
+
 func TestPassthroughLifecycle_CyberTerminalEventsMarkBeforeAfterTurn(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -20,6 +20,7 @@ import (
 
 // OpenAIRecordUsageInput input for recording usage
 type OpenAIRecordUsageInput struct {
+	IngressTransport   int16
 	Result             *OpenAIForwardResult
 	APIKey             *APIKey
 	User               *User
@@ -336,6 +337,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if result.OpenAIWSMode {
 		if upstreamRequestID := strings.TrimSpace(result.RequestID); upstreamRequestID != "" {
 			requestID = upstreamRequestID
+		} else if result.LogicalTurnID != "" {
+			requestID = "ws_turn:" + result.LogicalTurnID
 		}
 	}
 	// Async Grok video: always use the stable task id for dedup (status + content polls
@@ -434,6 +437,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	usageLog.AccountRateMultiplier = &accountRateMultiplier
 	usageLog.BillingType = billingType
 	usageLog.Stream = result.Stream
+	usageLog.IngressTransport = input.IngressTransport
 	usageLog.UpstreamTransport = UsageUpstreamTransportHTTP
 	if result.OpenAIWSMode && !result.OpenAIWSHTTPBridge {
 		usageLog.UpstreamTransport = UsageUpstreamTransportWebSocket

@@ -746,6 +746,9 @@ export default {
         responsesWebsocketsV2Desc:
           '默认关闭。开启后可启用 responses_websockets_v2 协议能力（受网关全局开关与账号类型开关约束）。',
         wsMode: 'WS mode',
+        wsProfile: 'WS 协议档案',
+        wsProfileNone: '未配置（仅 HTTP）',
+        wsEndpoint: 'WS 端点',
         wsModeDesc:
           '仅对当前 OpenAI 账号类型生效。选择“关闭”可禁用 WS；其余模式需全局 gateway.openai_ws.mode_router_v2_enabled=true 才按所选方式连接，未开启时统一使用上下文池。adaptive 优先 WS，大首帧临时走 HTTP，完整上下文缩小后恢复 WS 并释放桥接历史；该模式不设客户端消息字节上限。',
         wsModeOff: '关闭（off）',

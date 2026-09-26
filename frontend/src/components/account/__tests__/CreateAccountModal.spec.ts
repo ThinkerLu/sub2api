@@ -587,6 +587,22 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     })
   })
 
+  it('persists an explicit provider WS profile without OpenAI legacy flags', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Kimi')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Kimi WS profile')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('synthetic-key')
+    wrapper.getComponent('[data-testid="create-openai-ws-mode-select"]').vm.$emit('update:modelValue', 'adaptive')
+    wrapper.getComponent('[data-testid="responses-ws-profile-select"]').vm.$emit('update:modelValue', 'openai_responses_v2')
+    await flushPromises()
+    await wrapper.get('[data-testid="responses-ws-endpoint"]').setValue('wss://provider.example/explicit')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const extra = createAccountMock.mock.calls[0]?.[0]?.extra
+    expect(extra).toMatchObject({ responses_ws_mode: 'adaptive', responses_ws_profile: 'openai_responses_v2', responses_ws_url: 'wss://provider.example/explicit' })
+    expect(extra).not.toHaveProperty('openai_apikey_responses_websockets_v2_enabled')
+  })
+
   it('exposes Agent Identity in the OpenAI authorization methods', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'OpenAI')

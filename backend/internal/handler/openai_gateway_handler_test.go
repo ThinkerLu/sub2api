@@ -2060,10 +2060,20 @@ type openAIResponsesWSUsageLogResult struct {
 
 type openAIWSUsageHandlerAccountRepoStub struct {
 	service.AccountRepository
-	account service.Account
+	account  service.Account
+	accounts []service.Account
 }
 
 func (s *openAIWSUsageHandlerAccountRepoStub) ListSchedulableByPlatform(ctx context.Context, platform string) ([]service.Account, error) {
+	if len(s.accounts) > 0 {
+		var accounts []service.Account
+		for _, a := range s.accounts {
+			if a.Platform == platform {
+				accounts = append(accounts, a)
+			}
+		}
+		return accounts, nil
+	}
 	if s.account.Platform != platform {
 		return nil, nil
 	}
@@ -2075,6 +2085,14 @@ func (s *openAIWSUsageHandlerAccountRepoStub) ListSchedulableByGroupIDAndPlatfor
 }
 
 func (s *openAIWSUsageHandlerAccountRepoStub) GetByID(ctx context.Context, id int64) (*service.Account, error) {
+	if len(s.accounts) > 0 {
+		for _, a := range s.accounts {
+			if a.ID == id {
+				return &a, nil
+			}
+		}
+		return nil, nil
+	}
 	if s.account.ID != id {
 		return nil, nil
 	}

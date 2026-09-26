@@ -1862,7 +1862,7 @@
 
       <!-- OpenAI WS Mode 三态（off/ctx_pool/passthrough） -->
       <div
-        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        v-if="(account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')) || isCNApiKeyAccount"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -1876,9 +1876,10 @@
             </p>
           </div>
           <div class="w-52">
-            <Select v-model="openaiResponsesWebSocketV2Mode" data-testid="edit-openai-ws-mode-select" :options="openAIWSModeOptions" />
+            <Select v-model="openaiResponsesWebSocketV2Mode" data-testid="edit-openai-ws-mode-select" :options="account?.platform === 'openai' ? openAIWSModeOptions : openAIWSModeOptions.filter(option => !['ctx_pool', 'passthrough'].includes(option.value))" />
           </div>
         </div>
+        <ResponsesWSProfileFields v-if="isCNApiKeyAccount" v-model:profile="responsesWSProfile" v-model:endpoint="responsesWSEndpoint" />
       </div>
 
       <!-- OpenAI APIKey Responses API support mode -->
@@ -3189,11 +3190,15 @@ import {
   OPENAI_WS_MODE_PASSTHROUGH,
   OPENAI_WS_MODE_HTTP_BRIDGE,
   OPENAI_WS_MODE_ADAPTIVE,
+  RESPONSES_WS_PROFILE_V2,
+  buildResponsesWSProfileExtra,
+  normalizeOpenAIWSMode,
   isOpenAIWSModeEnabled,
   resolveOpenAIWSModeHintKey,
   type OpenAIWSMode,
   resolveOpenAIWSModeFromExtra
 } from '@/utils/openaiWsMode'
+import ResponsesWSProfileFields from './ResponsesWSProfileFields.vue'
 import {
   getPresetMappingsByPlatform,
   commonErrorCodes,
@@ -3696,6 +3701,8 @@ const openAIImagesUrlToB64JsonEnabled = ref(false)
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
+const responsesWSProfile = ref('')
+const responsesWSEndpoint = ref('')
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
 type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
@@ -4153,6 +4160,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   mixedScheduling.value = false
   allowOverages.value = false
 	const extra = newAccount.extra as Record<string, unknown> | undefined
+	responsesWSProfile.value = extra?.responses_ws_profile === RESPONSES_WS_PROFILE_V2 ? RESPONSES_WS_PROFILE_V2 : ''
+	responsesWSEndpoint.value = typeof extra?.responses_ws_url === 'string' ? extra.responses_ws_url : ''
 	mixedScheduling.value = extra?.mixed_scheduling === true
 	allowOverages.value = extra?.allow_overages === true
 	upstreamRequestIdHeader.value = readUpstreamRequestIdHeader(extra)
@@ -4265,6 +4274,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   }
 
   // Load quota limit for apikey/bedrock accounts (bedrock quota is also loaded in its own branch above)
+  if (newAccount.type === 'apikey' && (isCNProviderPlatform(newAccount.platform) || newAccount.platform === 'opencode_go')) {
+    openaiAPIKeyResponsesWebSocketV2Mode.value = normalizeOpenAIWSMode(extra?.responses_ws_mode) ?? OPENAI_WS_MODE_OFF
+  }
   if (newAccount.type === 'apikey' || newAccount.type === 'bedrock') {
     const quotaVal = extra?.quota_limit as number | undefined
     editQuotaLimit.value = (quotaVal && quotaVal > 0) ? quotaVal : null
@@ -5843,6 +5855,12 @@ const handleSubmit = async () => {
     }
 
     // 上游ID头名只在改动时写回 extra，避免用弹窗打开时的快照覆盖运行态键。
+    if (isCNApiKeyAccount.value) {
+      const existing = props.account.extra as Record<string, unknown> | undefined
+      if ((normalizeOpenAIWSMode(existing?.responses_ws_mode) ?? OPENAI_WS_MODE_OFF) !== openaiAPIKeyResponsesWebSocketV2Mode.value || (existing?.responses_ws_profile ?? '') !== responsesWSProfile.value || (existing?.responses_ws_url ?? '') !== responsesWSEndpoint.value.trim()) {
+        updatePayload.extra = buildResponsesWSProfileExtra((updatePayload.extra ?? existing) as Record<string, unknown> | undefined, openaiAPIKeyResponsesWebSocketV2Mode.value, responsesWSProfile.value, responsesWSEndpoint.value)
+      }
+    }
     const nextUpstreamRequestIdHeader = upstreamRequestIdHeader.value.trim()
     if (nextUpstreamRequestIdHeader !== readUpstreamRequestIdHeader(props.account.extra)) {
       const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}

@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -16,22 +19,39 @@ import (
 
 // IsOpenAIWSAdaptive reports the selected account's effective ingress mode.
 func (s *OpenAIGatewayService) IsOpenAIWSAdaptive(account *Account) bool {
-	return s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIWS.ModeRouterV2Enabled && account != nil && account.ResolveOpenAIResponsesWebSocketV2Mode(s.cfg.Gateway.OpenAIWS.IngressModeDefault) == OpenAIWSIngressModeAdaptive
+	if s == nil || s.cfg == nil || !s.cfg.Gateway.OpenAIWS.ModeRouterV2Enabled || account == nil {
+		return false
+	}
+	mode := account.ResolveOpenAIResponsesWebSocketV2Mode(s.cfg.Gateway.OpenAIWS.IngressModeDefault)
+	if mode == OpenAIWSIngressModeAdaptive {
+		return true
+	}
+	if !s.cfg.Gateway.OpenAIWS.DualLegEnabled {
+		return false
+	}
+	if mode == OpenAIWSIngressModeOff || mode == OpenAIWSIngressModeHTTPBridge {
+		return openAIWSHasCompatibleHTTP(account)
+	}
+	return account.ResponsesWSV2Profile() != "" && (mode == OpenAIWSIngressModeCtxPool || mode == OpenAIWSIngressModePassthrough || mode == OpenAIWSIngressModeShared || mode == OpenAIWSIngressModeDedicated)
 }
 
 // OpenAIWSAdaptiveRouteAvailable runs before the model-bearing first message.
 // It checks the same group/platform account inventory as the scheduler, without
 // selecting an account or acquiring an account concurrency slot.
-func (s *OpenAIGatewayService) OpenAIWSAdaptiveRouteAvailable(ctx context.Context, groupID *int64) (bool, error) {
+func (s *OpenAIGatewayService) OpenAIWSAdaptiveRouteAvailable(ctx context.Context, groupID *int64, platforms ...string) (bool, error) {
 	if s == nil || s.cfg == nil || !s.cfg.Gateway.OpenAIWS.ModeRouterV2Enabled {
 		return false, nil
 	}
-	accounts, err := s.listSchedulableAccounts(ctx, groupID, PlatformOpenAI)
+	platform := PlatformOpenAI
+	if len(platforms) > 0 {
+		platform = platforms[0]
+	}
+	accounts, err := s.listSchedulableAccounts(ctx, groupID, platform)
 	if err != nil {
 		return false, err
 	}
 	for i := range accounts {
-		if s.IsOpenAIWSAdaptive(&accounts[i]) && s.getOpenAIWSProtocolResolver().Resolve(&accounts[i]).Transport == OpenAIUpstreamTransportResponsesWebsocketV2 {
+		if s.IsOpenAIWSAdaptive(&accounts[i]) && s.isOpenAIAccountTransportCompatible(&accounts[i], OpenAIUpstreamTransportResponsesWebsocketV2Ingress) {
 			return true, nil
 		}
 	}
@@ -47,6 +67,7 @@ func (s *OpenAIGatewayService) OpenAIWSModelRouteAvailable(
 	groupID *int64,
 	model string,
 	requiredCapability OpenAIEndpointCapability,
+	platforms ...string,
 ) (bool, error) {
 	if s == nil || s.cfg == nil {
 		return true, nil
@@ -55,7 +76,11 @@ func (s *OpenAIGatewayService) OpenAIWSModelRouteAvailable(
 	if model == "" {
 		return true, nil
 	}
-	accounts, err := s.listSchedulableAccounts(ctx, groupID, PlatformOpenAI)
+	platform := PlatformOpenAI
+	if len(platforms) > 0 {
+		platform = platforms[0]
+	}
+	accounts, err := s.listSchedulableAccounts(ctx, groupID, platform)
 	if err != nil {
 		return false, err
 	}
@@ -68,7 +93,7 @@ func (s *OpenAIGatewayService) OpenAIWSModelRouteAvailable(
 		}
 		req := OpenAIAccountScheduleRequest{
 			GroupID:            groupID,
-			Platform:           PlatformOpenAI,
+			Platform:           platform,
 			RequestedModel:     model,
 			RequiredTransport:  OpenAIUpstreamTransportResponsesWebsocketV2Ingress,
 			RequiredCapability: requiredCapability,
@@ -91,16 +116,36 @@ func (s *OpenAIGatewayService) OpenAIWSModelRouteAvailable(
 // The adaptive session owns the warmup socket until HTTP is selected or the
 // session ends. All access is sequential, after the previous relay has joined.
 type openAIWSAdaptiveUpstream struct {
-	conn    openAIWSClientConn
-	status  int
-	headers http.Header
+	handshakeFingerprint string
+	releaseReservation   func()
+	conn                 openAIWSClientConn
+	status               int
+	headers              http.Header
+}
+
+var errOpenAIWSAdaptiveReplayRequired = errors.New("websocket handshake changed; full replay required before submission")
+
+func openAIWSHandshakeFingerprint(endpoint, proxy, model, tier string, headers http.Header) string {
+	hash := sha256.New()
+	for _, value := range []string{endpoint, proxy, model, tier} {
+		_, _ = fmt.Fprintf(hash, "%d:%s\n", len(value), value)
+	}
+	_ = headers.Write(hash)
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func (u *openAIWSAdaptiveUpstream) close() {
-	if u != nil && u.conn != nil {
+	if u == nil {
+		return
+	}
+	if u.conn != nil {
 		_ = u.conn.Close()
 		u.conn = nil
 		u.headers = nil
+	}
+	if u.releaseReservation != nil {
+		u.releaseReservation()
+		u.releaseReservation = nil
 	}
 }
 
@@ -123,6 +168,19 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(ctx context.Con
 	}
 	reader, _ := ctx.Value(openAIWSAdaptiveReaderKey{}).(*openAIWSAdaptiveReader)
 	if s.IsOpenAIWSAdaptive(account) && clientConn != nil {
+		if s.cfg.Gateway.OpenAIWS.DualLegEnabled {
+			cleanupMemory, err := s.BindOpenAIWSDualLegMemory(clientConn)
+			if err != nil {
+				return err
+			}
+			defer cleanupMemory()
+			value, _ := openAIWSMemorySessions.Load(clientConn)
+			memory := value.(*openAIWSMemorySession)
+			if err := memory.bindAccount(account.ID); err != nil {
+				return err
+			}
+			ctx = context.WithValue(ctx, openAIWSMemoryContextKey{}, memory)
+		}
 		copied := OpenAIWSIngressHooks{}
 		if hooks != nil {
 			copied = *hooks
@@ -130,7 +188,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(ctx context.Con
 		copied.adaptiveUpstream = &openAIWSAdaptiveUpstream{}
 		hooks = &copied
 		defer copied.adaptiveUpstream.close()
-		clientConn.SetReadLimit(-1)
+		if s.cfg.Gateway.OpenAIWS.DualLegEnabled {
+			clientConn.SetReadLimit(ResolveOpenAIWSClientReadLimitBytes(s.cfg))
+		} else {
+			clientConn.SetReadLimit(-1)
+		}
 		if reader == nil {
 			var cleanup func()
 			ctx, cleanup = s.BeginOpenAIWSAdaptiveSession(ctx, clientConn)
@@ -282,20 +344,20 @@ func (s *OpenAIGatewayService) BeginOpenAIWSAdaptiveSession(ctx context.Context,
 
 // A real upstream generate=false response preserves IDs/usage, but must not
 // commit the downstream session to passthrough before its first generating turn.
-func (s *OpenAIGatewayService) proxyOpenAIWSAdaptiveWarmup(ctx context.Context, c *gin.Context, client *coderws.Conn, account *Account, token string, payload []byte, hooks *OpenAIWSIngressHooks, handoff *openAIWSAdaptiveHandoff) (*OpenAIForwardResult, error) {
+func (s *OpenAIGatewayService) proxyOpenAIWSAdaptiveSingleTurn(ctx context.Context, c *gin.Context, client *coderws.Conn, account *Account, token string, payload []byte, hooks *OpenAIWSIngressHooks, handoff *openAIWSAdaptiveHandoff) (*OpenAIForwardResult, error) {
 	next := adaptivePassthroughHooks(hooks, handoff)
-	next.adaptiveWarmup = true
+	next.adaptiveSingleTurn = true
 	collector := &openAIWSToolCallReplayCollector{}
-	next.adaptiveWarmupCollector = collector
+	next.adaptiveTurnCollector = collector
 	var result *OpenAIForwardResult
 	next.AfterTurn = func(_ int, r *OpenAIForwardResult, _ error) { result = r }
 	err := s.proxyResponsesWebSocketV2Passthrough(ctx, c, client, account, token, payload, next, s.getOpenAIWSProtocolResolver().Resolve(account))
 	if result != nil {
 		result.wsAccountFailoverReplayInput = collector.AllItems()
 	}
-	if err == nil && (result == nil || !result.SucceededForScheduling()) {
-		err = NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "adaptive warmup did not complete successfully", nil)
+	if err == nil && (result == nil || (result.UpstreamTerminalEvent != "response.completed" && result.UpstreamTerminalEvent != "response.done")) {
+		err = NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "adaptive upstream turn did not complete successfully", nil)
 	}
-	logOpenAIWSModeInfo("ingress_ws_adaptive_warmup_completed account_id=%d turn=%d payload_bytes=%d success=%v", account.ID, handoff.turn, len(payload), err == nil)
+	logOpenAIWSModeInfo("ingress_ws_adaptive_turn_completed account_id=%d turn=%d payload_bytes=%d success=%v", account.ID, handoff.turn, len(payload), err == nil)
 	return result, err
 }

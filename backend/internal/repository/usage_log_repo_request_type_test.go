@@ -107,6 +107,7 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			int64(0),         // egress_body_bytes
 			log.NativeCompactionV2,
 			log.UpstreamTransport,
+			log.IngressTransport,
 			createdAt,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(99), createdAt))
@@ -207,6 +208,7 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			int64(0),         // egress_body_bytes
 			log.NativeCompactionV2,
 			log.UpstreamTransport,
+			log.IngressTransport,
 			createdAt,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(100), createdAt))
@@ -288,8 +290,8 @@ func TestPrepareUsageLogInsert_PersistsNativeCompactionV2WithoutChangingRequestT
 	prepared := prepareUsageLogInsert(log)
 
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
-	require.Equal(t, "boolean", usageLogInsertArgTypes[len(usageLogInsertArgTypes)-3])
-	require.Equal(t, true, prepared.args[len(prepared.args)-3])
+	require.Equal(t, "boolean", usageLogInsertArgTypes[len(usageLogInsertArgTypes)-4])
+	require.Equal(t, true, prepared.args[len(prepared.args)-4])
 	require.Equal(t, int16(service.RequestTypeStream), prepared.args[30])
 	require.Equal(t, service.RequestTypeStream, log.RequestType)
 	require.True(t, log.Stream)
@@ -922,11 +924,11 @@ type usageLogScannerStub struct {
 func (s usageLogScannerStub) Scan(dest ...any) error {
 	values := s.values
 	// Keep older fixtures concise: the four traffic counters were inserted
-	// immediately before native_compaction_v2, upstream_transport, created_at.
-	if len(dest) == len(values)+4 && len(values) >= 3 {
+	// immediately before native_compaction_v2, upstream_transport, ingress_transport, created_at.
+	if len(dest) == len(values)+4 && len(values) >= 4 {
 		values = append([]any(nil), values...)
-		tail := append([]any(nil), values[len(values)-3:]...)
-		values = append(values[:len(values)-3], int64(0), int64(0), int64(0), int64(0))
+		tail := append([]any(nil), values[len(values)-4:]...)
+		values = append(values[:len(values)-4], int64(0), int64(0), int64(0), int64(0))
 		values = append(values, tail...)
 	}
 	if len(dest) != len(values) {
@@ -997,6 +999,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			false,    // native_compaction_v2
 			int16(0), // upstream_transport
+			int16(0), // ingress_transport
 			now,
 		}})
 		require.NoError(t, err)
@@ -1078,6 +1081,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // session_id
 			false,             // native_compaction_v2
 			int16(0),          // upstream_transport
+			int16(0),          // ingress_transport
 			now,
 		}})
 		require.NoError(t, err)
@@ -1142,6 +1146,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // session_id
 			true,              // native_compaction_v2
 			int16(0),          // upstream_transport
+			int16(0),          // ingress_transport
 			now,
 		}})
 		require.NoError(t, err)
@@ -1207,6 +1212,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // session_id
 			false,             // native_compaction_v2
 			int16(0),          // upstream_transport
+			int16(0),          // ingress_transport
 			now,
 		}})
 		require.NoError(t, err)

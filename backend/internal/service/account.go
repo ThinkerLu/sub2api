@@ -2198,7 +2198,17 @@ func normalizeOpenAIWSIngressDefaultMode(mode string) string {
 // 4. defaultMode（非法时回退 ctx_pool）
 func (a *Account) ResolveOpenAIResponsesWebSocketV2Mode(defaultMode string) string {
 	resolvedDefault := normalizeOpenAIWSIngressDefaultMode(defaultMode)
-	if a == nil || !a.IsOpenAI() {
+	if a == nil {
+		return OpenAIWSIngressModeOff
+	}
+	if !a.IsOpenAI() {
+		if a.Type != AccountTypeAPIKey || (!a.IsCNProvider() && !a.IsOpenCodeGo()) {
+			return OpenAIWSIngressModeOff
+		}
+		raw, _ := a.Extra["responses_ws_mode"].(string)
+		if mode := normalizeOpenAIWSIngressMode(raw); mode == OpenAIWSIngressModeAdaptive || mode == OpenAIWSIngressModeHTTPBridge || mode == OpenAIWSIngressModeOff {
+			return mode
+		}
 		return OpenAIWSIngressModeOff
 	}
 	if a.Extra == nil {

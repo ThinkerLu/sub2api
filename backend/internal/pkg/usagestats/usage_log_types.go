@@ -208,6 +208,7 @@ type UserBreakdownDimension struct {
 	RequestType        *int16 // filter by request_type (non-nil to enable)
 	Stream             *bool  // filter by stream flag (non-nil to enable)
 	UpstreamTransport  *int16
+	IngressTransport   *int16
 	NativeCompactionV2 *bool // filter by native compaction v2 flag (non-nil to enable)
 	BillingType        *int8 // filter by billing_type (non-nil to enable)
 	// SortBy 指定排序列(空 = 默认按 actual_cost)。合法值由 repo 层 allowlist 校验。
@@ -299,6 +300,7 @@ type UsageLogFilters struct {
 	Stream                *bool
 	NativeCompactionV2    *bool
 	UpstreamTransport     *int16
+	IngressTransport      *int16
 	BillingType           *int8
 	BillingMode           string
 	UpstreamModelMismatch *bool

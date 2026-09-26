@@ -3,6 +3,19 @@ export const OPENAI_WS_MODE_CTX_POOL = 'ctx_pool'
 export const OPENAI_WS_MODE_PASSTHROUGH = 'passthrough'
 export const OPENAI_WS_MODE_ADAPTIVE = 'adaptive'
 export const OPENAI_WS_MODE_HTTP_BRIDGE = 'http_bridge'
+export const RESPONSES_WS_PROFILE_V2 = 'openai_responses_v2'
+
+export const buildResponsesWSProfileExtra = (base: Record<string, unknown> | undefined, mode: OpenAIWSMode, profile: string, endpoint: string): Record<string, unknown> => {
+  const extra: Record<string, unknown> = { ...base, responses_ws_mode: mode }
+  if (profile === RESPONSES_WS_PROFILE_V2) {
+    extra.responses_ws_profile = profile
+    extra.responses_ws_url = endpoint.trim()
+  } else {
+    delete extra.responses_ws_profile
+    delete extra.responses_ws_url
+  }
+  return extra
+}
 
 export type OpenAIWSMode =
   | typeof OPENAI_WS_MODE_OFF

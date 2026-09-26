@@ -394,6 +394,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		sessionID := service.ExtractClientSessionID(c)
 		h.submitMandatoryUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
+				IngressTransport:   service.UsageIngressTransportHTTP,
 				Result:             result,
 				APIKey:             apiKey,
 				User:               apiKey.User,

@@ -69,3 +69,20 @@ func TestUserUsageTrendIncludesTraffic(t *testing.T) {
 	require.Contains(t, query, "WHERE user_id = $1")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestUsageIngressTransportTrendBypassesUnfilteredAggregates(t *testing.T) {
+	var query string
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(captureEntQueryMatcher{actual: &query}))
+	require.NoError(t, err)
+	defer db.Close()
+	rows := sqlmock.NewRows([]string{"date", "requests", "input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens", "total_tokens", "cost", "actual_cost", "ingress_body_bytes", "upstream_request_body_bytes", "upstream_response_body_bytes", "egress_body_bytes"})
+	mock.ExpectQuery("transport trend").WillReturnRows(rows)
+	start := time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC)
+	ingress := int16(1)
+	_, err = newUsageLogRepositoryWithSQL(nil, db).GetUsageTrendWithUsageFilters(context.Background(), start, start.Add(24*time.Hour), "day", usagestats.UsageLogFilters{IngressTransport: &ingress})
+	require.NoError(t, err)
+	require.Contains(t, query, "FROM usage_logs")
+	require.Contains(t, query, "ingress_transport = $3")
+	require.NotContains(t, query, "usage_dashboard_daily")
+	require.NoError(t, mock.ExpectationsWereMet())
+}

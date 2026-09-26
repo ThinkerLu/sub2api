@@ -71,7 +71,9 @@ type RelayExit struct {
 
 type RelayOptions struct {
 	// SingleTurn leaves the downstream open after one terminal event and never reads its next request.
-	SingleTurn bool
+	SingleTurn              bool
+	SingleTurnErrorTerminal bool
+	TransformClientEvent    func(coderws.MessageType, []byte) []byte
 	// RetainUpstreamOnSingleTurn transfers a completed single-turn socket back to its caller.
 	// Errors and cancellation still close it. The caller must eventually close it.
 	RetainUpstreamOnSingleTurn      bool
@@ -307,6 +309,8 @@ func Relay(
 			nowFn,
 			state,
 			options.SingleTurn,
+			options.SingleTurnErrorTerminal,
+			options.TransformClientEvent,
 			options.OnUsageParseFailure,
 			options.OnTurnComplete,
 			options.BeforeWriteClient,
@@ -542,6 +546,8 @@ func runUpstreamToClient(
 	nowFn func() time.Time,
 	state *relayState,
 	singleTurn bool,
+	singleTurnErrorTerminal bool,
+	transformClientEvent func(coderws.MessageType, []byte) []byte,
 	onUsageParseFailure func(eventType string, usageRaw string),
 	onTurnComplete func(turn RelayTurnResult),
 	beforeWriteClient func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) error,
@@ -615,6 +621,9 @@ func runUpstreamToClient(
 				emitTurnComplete(onTurnComplete, state, finalizePendingBareError(state, nowFn()))
 			}
 			observedEvent = observeUpstreamMessage(state, payload, startAt, nowFn, onUsageParseFailure)
+			if singleTurn && singleTurnErrorTerminal && eventType == "error" {
+				observedEvent = finalizePendingBareError(state, nowFn())
+			}
 		case coderws.MessageBinary:
 			// Binary frames remain opaque for usage/result observation, but a JSON
 			// terminal still settles relay lifecycle. Otherwise the pending-turn
@@ -648,6 +657,9 @@ func runUpstreamToClient(
 			markActivity()
 			continue
 		}
+		if transformClientEvent != nil {
+			payload = transformClientEvent(msgType, payload)
+		}
 		if beforeClientWrite != nil {
 			beforeClientWrite(msgType, payload)
 		}
@@ -680,7 +692,7 @@ func runUpstreamToClient(
 			forwardedFrames.Add(1)
 		}
 		markActivity()
-		if singleTurn && msgType == coderws.MessageText && isTerminalEvent(strings.TrimSpace(gjson.GetBytes(payload, "type").String())) {
+		if singleTurn && msgType == coderws.MessageText && observedEvent.terminal {
 			exitCh <- relayExitSignal{stage: "single_turn_completed", graceful: true, wroteDownstream: true}
 			return
 		}

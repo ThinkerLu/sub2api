@@ -23,4 +23,20 @@ describe('adaptive WS configuration and usage transport', () => {
     expect(query.request_type).toBe('ws_http')
     expect(usageTransportQuery({ request_type: 'ws_v2' })).toEqual({ request_type: 'ws_v2' })
   })
+  it('derives all four actual transport combinations and preserves business types', () => {
+    expect(resolveUsageRequestType({ ingress_transport: 1, upstream_transport: 2, request_type: 'ws_v2' })).toBe('http_ws')
+    expect(resolveUsageRequestType({ ingress_transport: 2, upstream_transport: 1 })).toBe('ws_http')
+    expect(resolveUsageRequestType({ ingress_transport: 2, upstream_transport: 2 })).toBe('ws_v2')
+    expect(resolveUsageRequestType({ ingress_transport: 1, upstream_transport: 1, stream: true, request_type: 'ws_v2' })).toBe('stream')
+    expect(resolveUsageRequestType({ ingress_transport: 1, upstream_transport: 1, stream: false })).toBe('sync')
+    expect(resolveUsageRequestType({ ingress_transport: 0, upstream_transport: 2, request_type: 'ws_v2' })).toBe('ws_v2')
+    for (const request_type of ['cyber', 'live'] as const) {
+      expect(resolveUsageRequestType({ request_type, ingress_transport: 1, upstream_transport: 2 })).toBe(request_type)
+    }
+  })
+  it('filters HTTP to WS using both transport columns without a legacy request enum', () => {
+    const params = { request_type: 'http_ws', stream: true, page: 1 }
+    expect(usageTransportQuery(params)).toEqual({ request_type: undefined, stream: undefined, ingress_transport: 1, upstream_transport: 2, page: 1 })
+    expect(params.request_type).toBe('http_ws')
+  })
 })

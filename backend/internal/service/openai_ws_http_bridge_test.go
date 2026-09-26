@@ -759,6 +759,44 @@ func TestOpenAIWSPassthroughFirstMessageBridgeDecision(t *testing.T) {
 	}
 }
 
+func TestGPTThresholdRoutingUsesFinalModelAndLargestPayload(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		OpenAIWS: config.GatewayOpenAIWSConfig{
+			HTTPBridgeEnabled: true, HTTPBridgeThresholdBytes: 100,
+			GPTThresholdRoutingEnabled: true,
+		},
+	}}}
+	for _, tt := range []struct {
+		model string
+		sizes []int
+		want  bool
+	}{
+		{"gpt-5.6-sol", []int{99, 99, 99}, false},
+		{"gpt-5.6-sol", []int{100, 99, 99}, true},
+		{"gpt-6-astra", []int{10, 101, 10}, true},
+		{"gpt-5.4", []int{10, 10, 100}, true},
+		{"deepseek-v4-pro", []int{101, 101, 101}, false},
+		{"gpt-oss-120b", []int{101, 101, 101}, false},
+		{"gpt-image-2.5", []int{101, 101, 101}, false},
+		{"third-party-gpt-5.6-sol", []int{101, 101, 101}, false},
+		{"", []int{101, 101, 101}, false},
+	} {
+		t.Run(tt.model, func(t *testing.T) {
+			require.Equal(t, tt.want, svc.openAIWSRouteExceedsThreshold(tt.model, tt.sizes...))
+		})
+	}
+	require.True(t, svc.shouldBridgeOpenAIWSHTTP(nil, 100, "", "gpt-5.6-sol"))
+	require.False(t, svc.shouldBridgeOpenAIWSHTTP(nil, 100, "", "deepseek-v4-pro"))
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"model_mapping": map[string]any{"alias": "gpt-5.6-sol", "reverse": "deepseek-v4-pro"}}}
+	require.True(t, svc.shouldBridgeOpenAIWSPassthroughFirstMessage(account, []byte(`{"type":"response.create","model":"alias","input":"`+strings.Repeat("x", 100)+`"}`)))
+	require.False(t, svc.shouldBridgeOpenAIWSPassthroughFirstMessage(account, []byte(`{"type":"response.create","model":"reverse","input":"`+strings.Repeat("x", 100)+`"}`)))
+	require.True(t, svc.shouldBridgeOpenAIWSPassthroughFirstMessage(account, []byte(`{"type":"response.create","model":"reverse","input":"`+strings.Repeat("x", 100)+`"}`), "gpt-6-astra"))
+	require.False(t, svc.shouldBridgeOpenAIWSPassthroughFirstMessage(account, []byte(`{"type":"response.create","model":"alias","input":"`+strings.Repeat("x", 100)+`"}`), "deepseek-v4-pro"))
+	svc.cfg.Gateway.OpenAIWS.GPTThresholdRoutingEnabled = false
+	require.True(t, svc.openAIWSRouteExceedsThreshold("deepseek-v4-pro", 100))
+}
+
 func TestProxyOpenAIWSHTTPBridgeTurnTransportErrorFailoverSafety(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

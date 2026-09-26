@@ -5,15 +5,21 @@ export interface UsageRequestTypeLike {
   stream?: boolean | null
   openai_ws_mode?: boolean | null
   upstream_transport?: number | null
+  ingress_transport?: number | null
 }
 
-const VALID_REQUEST_TYPES = new Set<UsageRequestType>(['unknown', 'sync', 'stream', 'ws_v2', 'ws_http', 'cyber', 'live'])
+const VALID_REQUEST_TYPES = new Set<UsageRequestType>(['unknown', 'sync', 'stream', 'ws_v2', 'ws_http', 'http_ws', 'cyber', 'live'])
 
 export const isUsageRequestType = (value: unknown): value is UsageRequestType => {
   return typeof value === 'string' && VALID_REQUEST_TYPES.has(value as UsageRequestType)
 }
 
 export const resolveUsageRequestType = (value: UsageRequestTypeLike): UsageRequestType => {
+  if (value.request_type === 'cyber' || value.request_type === 'live') return value.request_type
+  if (value.ingress_transport === 1 && value.upstream_transport === 2) return 'http_ws'
+  if (value.ingress_transport === 2 && value.upstream_transport === 1) return 'ws_http'
+  if (value.ingress_transport === 2 && value.upstream_transport === 2) return 'ws_v2'
+  if (value.ingress_transport === 1 && value.upstream_transport === 1) return value.stream ? 'stream' : 'sync'
   if (value.upstream_transport === 1 && (value.request_type === 'ws_v2' || (!value.request_type && value.openai_ws_mode))) return 'ws_http'
   if (isUsageRequestType(value.request_type)) {
     return value.request_type
@@ -26,7 +32,7 @@ export const resolveUsageRequestType = (value: UsageRequestTypeLike): UsageReque
 
 export const requestTypeToLegacyStream = (requestType?: UsageRequestType | null): boolean | null | undefined => {
   // cyber 与 stream 正交（cyber 可发生在 stream 或非 stream 请求），不映射到 legacy stream 维度。
-  if (!requestType || requestType === 'unknown' || requestType === 'cyber' || requestType === 'live') {
+  if (!requestType || requestType === 'unknown' || requestType === 'cyber' || requestType === 'live' || requestType === 'http_ws') {
     return null
   }
   if (requestType === 'sync') {
@@ -36,7 +42,8 @@ export const requestTypeToLegacyStream = (requestType?: UsageRequestType | null)
 }
 
 // UI subtype is encoded as a separate additive filter, never a new DB enum.
-export const usageTransportQuery = <T extends object>(params: T): T & { upstream_transport?: number } => {
+export const usageTransportQuery = <T extends object>(params: T): T & { upstream_transport?: number; ingress_transport?: number } => {
+  if ((params as { request_type?: unknown }).request_type === 'http_ws') return { ...params, request_type: undefined, stream: undefined, ingress_transport: 1, upstream_transport: 2 }
   if ((params as { request_type?: unknown }).request_type === 'ws_http') return { ...params, request_type: 'ws_v2', upstream_transport: 1 }
   return params
 }

@@ -394,6 +394,8 @@ export default {
     time: 'Time',
     ws: 'WS',
     wsHttp: 'WS → HTTP',
+    httpWs: 'HTTP → WS',
+    httpWsHint: 'The client uses HTTP; this request was sent upstream over WebSocket.',
     wsHttpHint: 'The client uses WebSocket; sub2api sends this request upstream over HTTP.',
     stream: 'Stream',
     sync: 'Sync',

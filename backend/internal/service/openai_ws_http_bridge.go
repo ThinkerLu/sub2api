@@ -118,7 +118,36 @@ func (s *OpenAIGatewayService) openAIWSHTTPBridgeThresholdBytes() int64 {
 	return s.cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes
 }
 
-func (s *OpenAIGatewayService) shouldBridgeOpenAIWSHTTP(account *Account, payloadBytes int, previousResponseID string) bool {
+// Keep this list explicit: a third-party model with a GPT-looking name must
+// not silently inherit the route threshold without a verified profile.
+var openAIWSGPTThresholdModels = map[string]struct{}{
+	"gpt-4o": {}, "gpt-4o-mini": {}, "gpt-4.1": {}, "gpt-4.1-mini": {},
+	"gpt-4.1-nano": {}, "gpt-4.5": {}, "gpt-5": {}, "gpt-5.1": {},
+	"gpt-5.2": {}, "gpt-5.3": {}, "gpt-5.3-codex": {}, "gpt-5.3-codex-spark": {},
+	"gpt-5.4": {}, "gpt-5.4-mini": {}, "gpt-5.4-nano": {}, "gpt-5.5": {},
+	"gpt-5.5-pro": {}, "gpt-5.6-sol": {}, "gpt-5.6-terra": {}, "gpt-5.6-luna": {},
+	"gpt-6-astra": {}, "gpt-6-sol": {}, "gpt-6-luna": {},
+	"gpt-6": {}, "gpt-5.6": {}, "gpt-5-mini": {}, "gpt-5-nano": {}, "gpt-5-pro": {},
+	"gpt-5-codex": {}, "gpt-5.1-codex": {}, "gpt-5.1-codex-mini": {}, "gpt-5.1-codex-max": {},
+	"gpt-5.2-codex": {}, "gpt-5.2-pro": {}, "gpt-5.4-pro": {},
+}
+
+func (s *OpenAIGatewayService) openAIWSRouteExceedsThreshold(finalModel string, sizes ...int) bool {
+	if s != nil && s.cfg != nil && (s.cfg.Gateway.OpenAIWS.GPTThresholdRoutingEnabled || s.cfg.Gateway.OpenAIWS.DualLegEnabled) {
+		if _, known := openAIWSGPTThresholdModels[strings.ToLower(strings.TrimSpace(finalModel))]; !known {
+			return false
+		}
+	}
+	threshold := s.openAIWSHTTPBridgeThresholdBytes()
+	for _, size := range sizes {
+		if threshold > 0 && int64(size) >= threshold {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *OpenAIGatewayService) shouldBridgeOpenAIWSHTTP(account *Account, payloadBytes int, previousResponseID string, finalModel ...string) bool {
 	if account != nil && account.Platform == PlatformGrok {
 		return true
 	}
@@ -128,15 +157,28 @@ func (s *OpenAIGatewayService) shouldBridgeOpenAIWSHTTP(account *Account, payloa
 	if strings.TrimSpace(previousResponseID) != "" {
 		return false
 	}
-	threshold := s.openAIWSHTTPBridgeThresholdBytes()
-	return threshold > 0 && int64(payloadBytes) >= threshold
+	model := ""
+	if len(finalModel) > 0 {
+		model = finalModel[0]
+	}
+	return s.openAIWSRouteExceedsThreshold(model, payloadBytes)
 }
 
-func (s *OpenAIGatewayService) shouldBridgeOpenAIWSPassthroughFirstMessage(account *Account, payload []byte) bool {
+func (s *OpenAIGatewayService) shouldBridgeOpenAIWSPassthroughFirstMessage(account *Account, payload []byte, finalModel ...string) bool {
 	if account != nil && account.Platform == PlatformGrok {
 		return true
 	}
-	if !s.openAIWSHTTPBridgeEnabled() || int64(len(payload)) < s.openAIWSHTTPBridgeThresholdBytes() {
+	if !s.openAIWSHTTPBridgeEnabled() {
+		return false
+	}
+	model := strings.TrimSpace(gjson.GetBytes(payload, "model").String())
+	if account != nil {
+		model = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(model))
+	}
+	if len(finalModel) > 0 {
+		model = finalModel[0]
+	}
+	if !s.openAIWSRouteExceedsThreshold(model, len(payload)) {
 		return false
 	}
 	if !json.Valid(payload) {
@@ -493,7 +535,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	_, grokExplicitToolsField := openAIWSHTTPBridgeRawField(grokIntentSourceBody, "tools")
 	grokExplicitToolIntent := account.Platform == PlatformGrok && hasGrokResponsesToolIntent(grokIntentSourceBody)
 	var clientToolMapping apicompat.ResponsesClientToolMapping
-	functionToolUpstream := (account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey) || account.Platform == PlatformGrok
+	functionToolUpstream := ((account.Platform == PlatformOpenAI || account.UsesNativeCNResponses() || account.ResponsesWSV2Profile() != "") && account.Type == AccountTypeAPIKey) || account.Platform == PlatformGrok
 	if functionToolUpstream {
 		if account.Platform == PlatformGrok {
 			body, err = sanitizeGrokResponsesInput(body)
@@ -604,8 +646,12 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if buildErr != nil {
 			return nil, buildErr
 		}
+		openAIWSCommitFromContext(ctx).advance(openAIWSTurnSentUnknown)
 		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 		if err != nil {
+			if openAIWSCommitFromContext(ctx) != nil {
+				return nil, fmt.Errorf("upstream HTTP submission outcome unknown: %w", err)
+			}
 			if turn == 1 {
 				return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 			}
@@ -633,7 +679,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if retryErr != nil {
 			return nil, fmt.Errorf("normalize websocket http bridge rejected field retry: %w", retryErr)
 		}
-		if changed && rejectedFieldRetryState.Allow(retryBody) {
+		if changed && openAIWSCommitFromContext(ctx) == nil && rejectedFieldRetryState.Allow(retryBody) {
 			logOpenAIWSModeInfo(
 				"ingress_ws_http_bridge_rejected_field_retry account_id=%d turn=%d reason=%s",
 				account.ID,
@@ -663,6 +709,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, actualModel)
 		}
 		clientError := buildOpenAIWSHTTPBridgeErrorEvent(resp.StatusCode, upstreamMsg)
+		if openAIWSCommitFromContext(ctx) != nil {
+			return nil, fmt.Errorf("upstream HTTP turn failed: status=%d", resp.StatusCode)
+		}
 		if writeErr := writeClientMessage(clientError); writeErr == nil {
 			markOpenAIWSClientVisibleFailure(c, "error", clientError)
 		}
@@ -813,6 +862,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		}
 
 		upstreamMessage := []byte(openAICompatPayloadWithEventType(trimmedData, pendingSSEEventType))
+		if err := openAIWSMemoryFromContext(ctx).admitEvent(upstreamMessage); err != nil {
+			return resultWithUsage(), err
+		}
 		if normalized, changed := normalizeCompletedImageGenerationStatus(upstreamMessage); changed {
 			upstreamMessage = normalized
 		}
@@ -837,6 +889,18 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		}
 		if openAIWSMessageShouldParseUsage(eventType, upstreamMessage) {
 			parseOpenAIWSResponseUsageFromCompletedEvent(upstreamMessage, &usage)
+		}
+		if openAIWSCommitFromContext(ctx) != nil && (eventType == "error" || eventType == "response.failed") {
+			upstreamTerminalEvent = eventType
+			s.handleOpenAIWSFailureAccountSideEffects(ctx, account, actualModel, resp.Header, upstreamMessage)
+			clientEvent := openAIWSUnknownExecutionEvent()
+			if markOpenAICyberPolicyEvent(c, upstreamMessage, http.StatusOK, &usage) {
+				clientEvent = upstreamMessage
+			}
+			if err := writeClientMessage(clientEvent); err != nil {
+				return resultWithUsage(), err
+			}
+			return resultWithUsage(), errors.New("upstream HTTP stream failed after submission")
 		}
 		if eventType == "error" || eventType == "response.failed" {
 			markOpenAICyberPolicyEvent(c, upstreamMessage, http.StatusOK, &usage)

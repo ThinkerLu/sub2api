@@ -512,6 +512,12 @@ func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	if cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes != 15*1024*1024 {
 		t.Fatalf("Gateway.OpenAIWS.HTTPBridgeThresholdBytes = %d, want %d", cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes, 15*1024*1024)
 	}
+	if cfg.Gateway.OpenAIWS.GPTThresholdRoutingEnabled {
+		t.Fatal("Gateway.OpenAIWS.GPTThresholdRoutingEnabled must default to false")
+	}
+	if cfg.Gateway.OpenAIWS.DualLegEnabled || cfg.Gateway.OpenAIWS.DualLegMemoryBudgetBytes != 0 || cfg.Gateway.OpenAIWS.DualLegAccountMemoryBudgetBytes != 0 {
+		t.Fatal("dual-leg must remain disabled until memory budgets are explicitly configured")
+	}
 	if cfg.Gateway.OpenAIWS.RetryBackoffInitialMS != 120 {
 		t.Fatalf("Gateway.OpenAIWS.RetryBackoffInitialMS = %d, want 120", cfg.Gateway.OpenAIWS.RetryBackoffInitialMS)
 	}

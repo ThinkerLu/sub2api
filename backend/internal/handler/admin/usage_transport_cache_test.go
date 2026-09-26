@@ -17,3 +17,15 @@ func TestUsageCacheSeparatesUpstreamTransport(t *testing.T) {
 	require.NotEqual(t, unknown, httpKey)
 	require.NotEqual(t, httpKey, usageStatsCacheKey(filters))
 }
+
+func TestUsageCacheSeparatesIngressTransport(t *testing.T) {
+	upstream, ingress := int16(2), int16(1)
+	filters := usagestats.UsageLogFilters{UpstreamTransport: &upstream}
+	unknown := usageStatsCacheKey(filters)
+	filters.IngressTransport = &ingress
+	httpKey := usageStatsCacheKey(filters)
+	ingress = 2
+	wsKey := usageStatsCacheKey(filters)
+	require.NotEqual(t, unknown, httpKey)
+	require.NotEqual(t, httpKey, wsKey)
+}
