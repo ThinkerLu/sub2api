@@ -2,6 +2,8 @@
 
 目标版本：`v0.2.8-beta3-adaptive-ws-keepalive`。开发分支 `codex/adaptive-ws-keepalive`，应用构建与发布提交记录在 manifest；官方源码基线仍为 `v0.2.8`。
 
+关联修复提交：`0b3684047`。
+
 ## 问题与证据
 
 beta1 新增双链路路径、beta2 默认 adaptive 路径按 turn 调用单轮 passthrough，终止事件后结束 relay 但保留上游连接。coder/websocket 需要持续读取才能处理上游 Ping 并发送 Pong；轮间无人读取造成 `keepalive ping timeout`。下一轮复用旧连接、开始写入后才发现断开，触发 `upstream_execution_unknown`。
