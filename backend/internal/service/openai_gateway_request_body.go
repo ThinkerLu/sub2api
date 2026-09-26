@@ -748,6 +748,21 @@ func normalizeOpenAIStoreFalseReasoningForAccount(body []byte, account *Account,
 	return normalizeOpenAIAPIKeyStoreFalseReasoningReplay(body, knownStoreFalse)
 }
 
+func normalizeOpenAIResponsesFinalWSReasoning(body []byte, account *Account, finalModel string) ([]byte, bool, error) {
+	if account == nil || !account.IsOpenAI() || ResolveThinkingProtocol(finalModel) == ThinkingProtocolPassbackRequired {
+		return body, false, nil
+	}
+	normalized, changed, err := normalizeOpenAIResponsesReasoningContentReplay(body)
+	if err != nil || !account.IsOpenAIApiKey() {
+		return normalized, changed, err
+	}
+	next, storeChanged, err := normalizeOpenAIAPIKeyStoreFalseReasoningReplay(normalized, false)
+	if err != nil {
+		return body, false, err
+	}
+	return next, changed || storeChanged, nil
+}
+
 func normalizeOpenAIAPIKeyStoreFalseReasoningReplay(body []byte, knownStoreFalse bool) ([]byte, bool, error) {
 	if !knownStoreFalse && gjson.GetBytes(body, "store").Type != gjson.False {
 		return body, false, nil
@@ -1451,6 +1466,10 @@ func normalizeOpenAIResponseFormatSchemasBody(body []byte) ([]byte, bool, error)
 }
 
 func normalizeOpenAIResponsesWebSocketCompatibilityBody(body []byte, account *Account, responsesLite bool) ([]byte, bool, error) {
+	return normalizeOpenAIResponsesWebSocketCompatibilityBodyWithDeferredReasoning(body, account, responsesLite, false)
+}
+
+func normalizeOpenAIResponsesWebSocketCompatibilityBodyWithDeferredReasoning(body []byte, account *Account, responsesLite, deferReasoning bool) ([]byte, bool, error) {
 	if account == nil || !account.IsOpenAI() {
 		return body, false, nil
 	}
@@ -1463,11 +1482,13 @@ func normalizeOpenAIResponsesWebSocketCompatibilityBody(body []byte, account *Ac
 			return body, false, err
 		}
 	}
-	if next, normalizedReasoningContent, err := normalizeOpenAIResponsesReasoningForAccount(normalized, account); err != nil {
-		return body, false, err
-	} else if normalizedReasoningContent {
-		normalized = next
-		changed = true
+	if !deferReasoning {
+		if next, normalizedReasoningContent, err := normalizeOpenAIResponsesReasoningForAccount(normalized, account); err != nil {
+			return body, false, err
+		} else if normalizedReasoningContent {
+			normalized = next
+			changed = true
+		}
 	}
 	if account.IsOpenAIApiKey() {
 		if next, normalizedParallel, err := normalizeOpenAIParallelToolCallsWithoutTools(normalized, responsesLite); err != nil {
@@ -1476,11 +1497,13 @@ func normalizeOpenAIResponsesWebSocketCompatibilityBody(body []byte, account *Ac
 			normalized = next
 			changed = true
 		}
-		if next, normalizedReasoning, err := normalizeOpenAIStoreFalseReasoningForAccount(normalized, account, false); err != nil {
-			return body, false, err
-		} else if normalizedReasoning {
-			normalized = next
-			changed = true
+		if !deferReasoning {
+			if next, normalizedReasoning, err := normalizeOpenAIStoreFalseReasoningForAccount(normalized, account, false); err != nil {
+				return body, false, err
+			} else if normalizedReasoning {
+				normalized = next
+				changed = true
+			}
 		}
 	}
 	if sanitized, idsChanged, err := sanitizeOpenAIResponsesInputItemIDs(normalized); err != nil {

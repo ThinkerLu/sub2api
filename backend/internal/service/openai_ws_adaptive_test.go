@@ -398,6 +398,25 @@ func TestAdaptiveThresholdBoundary(t *testing.T) {
 	}
 }
 
+func TestAdaptiveChannelMappedPassbackReasoning(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s, account, _, httpUp := adaptiveFixture()
+	s.cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes = 1
+	server, _ := startAdaptiveServer(t, s, account, &OpenAIWSIngressHooks{
+		MapRequestModel: func(_ int, model string) (string, error) {
+			require.Equal(t, "channel-alias", model)
+			return "deepseek-v4-pro", nil
+		},
+	})
+	client := dialAdaptive(t, server)
+	writeAdaptive(t, client, `{"type":"response.create","model":"channel-alias","store":false,"input":[{"type":"reasoning","content":[{"type":"reasoning_text","text":"keep across mapping"}]},{"type":"message","role":"user","content":"hello"}]}`)
+	readAdaptiveCompleted(t, client)
+	requests := httpUp.snapshot()
+	require.Len(t, requests, 1)
+	require.Equal(t, "deepseek-v4-pro", gjson.GetBytes(requests[0], "model").String())
+	require.Equal(t, "keep across mapping", gjson.GetBytes(requests[0], "input.0.content.0.text").String())
+}
+
 func TestAdaptiveWarmupDoesNotCommitPassthrough(t *testing.T) {
 	s, a, ws, httpUp := adaptiveFixture()
 	server, errs := startAdaptiveServer(t, s, a, nil)

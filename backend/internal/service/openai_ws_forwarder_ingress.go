@@ -299,7 +299,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 			normalized = next
 		}
 		responsesLite := isOpenAIResponsesLiteWebSocketPayload(normalized)
-		if compatibilityBody, compatibilityChanged, compatibilityErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(normalized, account, responsesLite); compatibilityErr != nil {
+		if compatibilityBody, compatibilityChanged, compatibilityErr := normalizeOpenAIResponsesWebSocketCompatibilityBodyWithDeferredReasoning(normalized, account, responsesLite, true); compatibilityErr != nil {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", compatibilityErr)
 		} else if compatibilityChanged {
 			normalized = compatibilityBody
@@ -427,6 +427,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 			if setErr != nil {
 				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", setErr)
 			}
+			normalized = next
+		}
+		if next, changed, normalizeErr := normalizeOpenAIResponsesFinalWSReasoning(normalized, account, upstreamModel); normalizeErr != nil {
+			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket reasoning payload", normalizeErr)
+		} else if changed {
 			normalized = next
 		}
 		SetOpsUpstreamModel(c, upstreamModel)
