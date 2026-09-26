@@ -475,8 +475,8 @@ type OpenAIGatewayService struct {
 	liveAttestationCipher SecretEncryptor
 
 	openaiWSPoolOnce               sync.Once
-	openaiWSMemoryOnce             sync.Once
-	openaiWSMemory                 *openAIWSMemoryGovernor
+	openaiWSAdaptiveSocketMu       sync.Mutex
+	openaiWSAdaptiveSockets        map[int64]int
 	openaiWSStateStoreOnce         sync.Once
 	openaiSchedulerOnce            sync.Once
 	openaiProxyStreamCircuitOnce   sync.Once

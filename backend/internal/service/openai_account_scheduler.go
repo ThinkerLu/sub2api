@@ -2493,7 +2493,7 @@ func (s *OpenAIGatewayService) isOpenAIAccountTransportCompatible(account *Accou
 		return false
 	}
 	if requiredTransport == OpenAIUpstreamTransportResponsesWebsocketV2Ingress {
-		if s.cfg != nil && s.cfg.Gateway.OpenAIWS.DualLegEnabled && s.IsOpenAIWSAdaptive(account) && openAIWSHasCompatibleHTTP(account) {
+		if s.IsOpenAIWSAdaptive(account) && openAIWSHasCompatibleHTTP(account) {
 			return true
 		}
 		// The client already selected WebSocket ingress. Do not bind that

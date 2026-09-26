@@ -11,6 +11,20 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestWSMigrationDefaultClientCompatibilityWithoutFeatureFlags(t *testing.T) {
+	s, _, _, _ := adaptiveFixture()
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("GET", "/responses", nil)
+	for _, ua := range []string{"codex_cli_rs/0.155.0", "codex_cli_rs/0.155.0-alpha.16.4"} {
+		c.Request.Header.Set("User-Agent", ua)
+		require.True(t, s.OpenAIWSModelSwitchAllowed(c, 1234))
+	}
+	for _, ua := range []string{"", "unknown/0.155.0", "codex_cli_rs/0.1.0", "other codex_cli_rs/0.155.0"} {
+		c.Request.Header.Set("User-Agent", ua)
+		require.False(t, s.OpenAIWSModelSwitchAllowed(c, 1234))
+	}
+}
+
 func TestWSMigrationHistoryRejectsMissingToolsAndHostedState(t *testing.T) {
 	for _, input := range []string{
 		`[{"type":"function_call_output","call_id":"orphan","output":"done"}]`,
@@ -43,10 +57,6 @@ func TestWSMigrationHistoryPreservesMessagesAndToolOrder(t *testing.T) {
 func TestWSMigrationFullRetryClaimsOnceAndAllowsNextTurn(t *testing.T) {
 	s, owner := wsRecoveryFixture()
 	s.cfg = passthroughLifecycleConfig()
-	s.cfg.Gateway.OpenAIWS.DualLegEnabled = true
-	s.cfg.Gateway.OpenAIWS.ModelSwitchFullRetryEnabled = true
-	s.cfg.Gateway.OpenAIWS.ModelSwitchAllowedGroupIDs = []int64{1}
-	s.cfg.Gateway.OpenAIWS.ModelSwitchAllowedClientVersions = []string{"0.155.0-alpha.16.4"}
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest("GET", "/responses", nil)
 	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.155.0-alpha.16.4")

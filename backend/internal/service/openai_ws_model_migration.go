@@ -25,21 +25,7 @@ func OpenAIWSMigrationScope(c *gin.Context, body []byte, apiKeyID int64) string 
 }
 
 func (s *OpenAIGatewayService) OpenAIWSModelSwitchAllowed(c *gin.Context, groupID int64) bool {
-	if s == nil || s.cfg == nil || c == nil || c.Request == nil {
-		return false
-	}
-	cfg := s.cfg.Gateway.OpenAIWS
-	if !cfg.DualLegEnabled || !cfg.ModelSwitchFullRetryEnabled {
-		return false
-	}
-	groupAllowed := false
-	for _, id := range cfg.ModelSwitchAllowedGroupIDs {
-		if id == groupID {
-			groupAllowed = true
-			break
-		}
-	}
-	if !groupAllowed {
+	if s == nil || s.cfg == nil || !s.cfg.Gateway.OpenAIWS.ModeRouterV2Enabled || groupID <= 0 || c == nil || c.Request == nil {
 		return false
 	}
 	fields := strings.Fields(c.GetHeader("User-Agent"))
@@ -50,12 +36,8 @@ func (s *OpenAIGatewayService) OpenAIWSModelSwitchAllowed(c *gin.Context, groupI
 	if !ok {
 		return false
 	}
-	for _, allowed := range cfg.ModelSwitchAllowedClientVersions {
-		if version == allowed {
-			return true
-		}
-	}
-	return false
+	// Only the client family verified by the real reconnect probes may retry.
+	return version == "0.155.0-alpha.16.4" || version == "0.155.0"
 }
 
 func (s *OpenAIGatewayService) PrepareOpenAIWSModelMigration(ctx context.Context, c *gin.Context, account *Account, body []byte, requestedModel string, userID, apiKeyID int64, groupID *int64, completedResponse ...string) error {
@@ -157,7 +139,7 @@ func (s *OpenAIGatewayService) PrepareOpenAIWSModelMigration(ctx context.Context
 }
 
 func (s *OpenAIGatewayService) ResumeOpenAIWSModelMigration(ctx context.Context, c *gin.Context, body []byte, requestedModel string, userID, apiKeyID int64, groupID *int64) (*OpenAIWSMigrationIntent, []byte, error) {
-	if s == nil || s.cfg == nil || !s.cfg.Gateway.OpenAIWS.DualLegEnabled || groupID == nil {
+	if s == nil || s.cfg == nil || !s.cfg.Gateway.OpenAIWS.ModeRouterV2Enabled || groupID == nil {
 		return nil, body, nil
 	}
 	scope := OpenAIWSMigrationScope(c, body, apiKeyID)

@@ -44,7 +44,7 @@ func TestAdaptiveHandlerAcceptsFirstAndSubsequentMessagesAbove64MiB(t *testing.T
 	defer upstream.Close()
 	h := newOpenAIWSPassthroughHandlerHarness(t, upstream.URL, func(cfg *config.Config, a *service.Account) {
 		a.Extra["openai_apikey_responses_websockets_v2_mode"] = "adaptive"
-		cfg.Gateway.OpenAIWS.ClientReadLimitBytes = 64 * 1024 * 1024
+		cfg.Gateway.OpenAIWS.ClientReadLimitBytes = 128 * 1024 * 1024
 		cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes = 15 * 1024 * 1024
 		cfg.Gateway.OpenAIWS.IngressInterTurnIdleTimeoutSeconds = 30
 		cfg.Gateway.OpenAIWS.ClientFirstMessageTimeoutSeconds = 30

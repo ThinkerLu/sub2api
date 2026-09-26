@@ -1,5 +1,7 @@
 # 功能索引
 
+当前 beta2 行为：[双链路默认生效、移除新增开关与内存预算](2026-09-26-dual-leg-default-no-budget.md)。beta1 文档保留历史记录，冲突处以此文档为准。
+
 | 功能 | 文档 | 首次发布 |
 | --- | --- | --- |
 | 仪表盘流量趋势 | [流量趋势](2026-09-25-traffic-trend-dashboard.md) | v0.2.9-traffic-trend-dashboard |

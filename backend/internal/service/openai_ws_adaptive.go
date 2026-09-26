@@ -26,13 +26,11 @@ func (s *OpenAIGatewayService) IsOpenAIWSAdaptive(account *Account) bool {
 	if mode == OpenAIWSIngressModeAdaptive {
 		return true
 	}
-	if !s.cfg.Gateway.OpenAIWS.DualLegEnabled {
-		return false
-	}
-	if mode == OpenAIWSIngressModeOff || mode == OpenAIWSIngressModeHTTPBridge {
+	if !account.IsOpenAI() && (mode == OpenAIWSIngressModeOff || mode == OpenAIWSIngressModeHTTPBridge) {
 		return openAIWSHasCompatibleHTTP(account)
 	}
-	return account.ResponsesWSV2Profile() != "" && (mode == OpenAIWSIngressModeCtxPool || mode == OpenAIWSIngressModePassthrough || mode == OpenAIWSIngressModeShared || mode == OpenAIWSIngressModeDedicated)
+	// Existing explicit OpenAI modes keep their established transport semantics.
+	return false
 }
 
 // OpenAIWSAdaptiveRouteAvailable runs before the model-bearing first message.
@@ -168,19 +166,6 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(ctx context.Con
 	}
 	reader, _ := ctx.Value(openAIWSAdaptiveReaderKey{}).(*openAIWSAdaptiveReader)
 	if s.IsOpenAIWSAdaptive(account) && clientConn != nil {
-		if s.cfg.Gateway.OpenAIWS.DualLegEnabled {
-			cleanupMemory, err := s.BindOpenAIWSDualLegMemory(clientConn)
-			if err != nil {
-				return err
-			}
-			defer cleanupMemory()
-			value, _ := openAIWSMemorySessions.Load(clientConn)
-			memory := value.(*openAIWSMemorySession)
-			if err := memory.bindAccount(account.ID); err != nil {
-				return err
-			}
-			ctx = context.WithValue(ctx, openAIWSMemoryContextKey{}, memory)
-		}
 		copied := OpenAIWSIngressHooks{}
 		if hooks != nil {
 			copied = *hooks
@@ -188,11 +173,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(ctx context.Con
 		copied.adaptiveUpstream = &openAIWSAdaptiveUpstream{}
 		hooks = &copied
 		defer copied.adaptiveUpstream.close()
-		if s.cfg.Gateway.OpenAIWS.DualLegEnabled {
-			clientConn.SetReadLimit(ResolveOpenAIWSClientReadLimitBytes(s.cfg))
-		} else {
-			clientConn.SetReadLimit(-1)
-		}
+		clientConn.SetReadLimit(ResolveOpenAIWSClientReadLimitBytes(s.cfg))
 		if reader == nil {
 			var cleanup func()
 			ctx, cleanup = s.BeginOpenAIWSAdaptiveSession(ctx, clientConn)

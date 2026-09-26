@@ -11,7 +11,6 @@ import (
 
 func TestResponsesWSProfileRequiresExplicitProviderConfiguration(t *testing.T) {
 	s, _, _, _ := adaptiveFixture()
-	s.cfg.Gateway.OpenAIWS.DualLegEnabled = true
 	a := &Account{Platform: PlatformDeepseek, Type: AccountTypeAPIKey, Concurrency: 1, Credentials: map[string]any{"base_url": "https://provider.example", "api_protocol": "responses"}, Extra: map[string]any{}}
 	require.Equal(t, OpenAIWSIngressModeOff, a.ResolveOpenAIResponsesWebSocketV2Mode("ctx_pool"))
 	a.Extra["responses_ws_mode"] = "adaptive"
@@ -35,7 +34,6 @@ func TestResponsesWSProfileRequiresExplicitProviderConfiguration(t *testing.T) {
 
 func TestDualLegNativeProviderWithoutWSProfileUsesHTTP(t *testing.T) {
 	s, a, ws, httpUp := adaptiveFixture()
-	s.cfg.Gateway.OpenAIWS.DualLegEnabled = true
 	a.Platform = PlatformDeepseek
 	a.Credentials["api_protocol"] = "responses"
 	server, _ := startAdaptiveServer(t, s, a, nil)
@@ -53,7 +51,6 @@ func TestDualLegNativeProviderWithoutWSProfileUsesHTTP(t *testing.T) {
 
 func TestDualLegNativeProviderExplicitProfileUsesWSWithoutGPTThreshold(t *testing.T) {
 	s, a, ws, httpUp := adaptiveFixture()
-	s.cfg.Gateway.OpenAIWS.DualLegEnabled = true
 	s.cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes = 1
 	a.Platform = PlatformDeepseek
 	a.Credentials["api_protocol"] = "responses"

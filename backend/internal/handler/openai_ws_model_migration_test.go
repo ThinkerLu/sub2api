@@ -77,12 +77,6 @@ func runWSModelMigrationHandler(t *testing.T, nativeProvider bool, fullFrameSwit
 	h := newOpenAIWSPassthroughHandlerHarness(t, upstream.URL, func(cfg *config.Config, a *service.Account) {
 		a.Extra["openai_apikey_responses_websockets_v2_mode"] = "adaptive"
 		a.Credentials["model_mapping"] = map[string]any{"gpt-5.1": "gpt-5.1"}
-		cfg.Gateway.OpenAIWS.DualLegEnabled = true
-		cfg.Gateway.OpenAIWS.DualLegMemoryBudgetBytes = 1 << 30
-		cfg.Gateway.OpenAIWS.DualLegAccountMemoryBudgetBytes = 512 << 20
-		cfg.Gateway.OpenAIWS.ModelSwitchFullRetryEnabled = true
-		cfg.Gateway.OpenAIWS.ModelSwitchAllowedGroupIDs = []int64{4301}
-		cfg.Gateway.OpenAIWS.ModelSwitchAllowedClientVersions = []string{"0.155.0-alpha.16.4"}
 	})
 	old := h.accountRepo.account
 	target := old

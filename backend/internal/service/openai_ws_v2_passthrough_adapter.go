@@ -960,10 +960,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		return errOpenAIWSAdaptiveReplayRequired
 	}
 	var releaseSocket func()
-	if !reused && openAIWSMemoryFromContext(ctx) != nil {
+	if !reused && retained != nil {
 		limit := (&openAIWSConnPool{cfg: s.cfg}).effectiveMaxConnsByAccount(account)
 		var err error
-		releaseSocket, err = openAIWSMemoryFromContext(ctx).reserveSocket(limit)
+		releaseSocket, err = s.acquireOpenAIWSAdaptiveSocket(account.ID, limit)
 		if err != nil {
 			return err
 		}
@@ -1449,9 +1449,6 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				_ = clientConn.CloseNow()
 			},
 			BeforeWriteClient: func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) error {
-				if err := openAIWSMemoryFromContext(ctx).admitEvent(payload); err != nil {
-					return err
-				}
 				if msgType != coderws.MessageText {
 					return nil
 				}

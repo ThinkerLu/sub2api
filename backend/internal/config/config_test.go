@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +14,14 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 )
+
+func TestOpenAIWSRemovedCustomEnvironmentFields(t *testing.T) {
+	typ := reflect.TypeOf(GatewayOpenAIWSConfig{})
+	for _, name := range []string{"DualLegEnabled", "GPTThresholdRoutingEnabled", "ModelSwitchFullRetryEnabled", "ModelSwitchAllowedGroupIDs", "ModelSwitchAllowedClientVersions", "DualLegMemoryBudgetBytes", "DualLegAccountMemoryBudgetBytes"} {
+		_, exists := typ.FieldByName(name)
+		require.False(t, exists, "removed custom setting must not remain configurable: %s", name)
+	}
+}
 
 func resetViperWithJWTSecret(t *testing.T) {
 	t.Helper()
@@ -511,12 +520,6 @@ func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	}
 	if cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes != 15*1024*1024 {
 		t.Fatalf("Gateway.OpenAIWS.HTTPBridgeThresholdBytes = %d, want %d", cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes, 15*1024*1024)
-	}
-	if cfg.Gateway.OpenAIWS.GPTThresholdRoutingEnabled {
-		t.Fatal("Gateway.OpenAIWS.GPTThresholdRoutingEnabled must default to false")
-	}
-	if cfg.Gateway.OpenAIWS.DualLegEnabled || cfg.Gateway.OpenAIWS.DualLegMemoryBudgetBytes != 0 || cfg.Gateway.OpenAIWS.DualLegAccountMemoryBudgetBytes != 0 {
-		t.Fatal("dual-leg must remain disabled until memory budgets are explicitly configured")
 	}
 	if cfg.Gateway.OpenAIWS.RetryBackoffInitialMS != 120 {
 		t.Fatalf("Gateway.OpenAIWS.RetryBackoffInitialMS = %d, want 120", cfg.Gateway.OpenAIWS.RetryBackoffInitialMS)

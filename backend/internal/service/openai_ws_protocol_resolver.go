@@ -53,9 +53,6 @@ func (r *defaultOpenAIWSProtocolResolver) Resolve(account *Account) OpenAIWSProt
 	}
 
 	wsCfg := r.cfg.Gateway.OpenAIWS
-	if !account.IsOpenAI() && !wsCfg.DualLegEnabled {
-		return openAIWSHTTPDecision("provider_profile_requires_dual_leg")
-	}
 	if wsCfg.ForceHTTP {
 		return openAIWSHTTPDecision("global_force_http")
 	}

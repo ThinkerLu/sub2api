@@ -1,5 +1,7 @@
 # GPT 目标模型的 Responses WS 阈值选路
 
+> beta2 更新：新增环境开关、恢复灰度配置和内存预算已移除；以下为 beta1 历史设计。当前行为见 [双链路默认生效](2026-09-26-dual-leg-default-no-budget.md)。
+
 - 目的：区分 GPT 文本/推理模型与其他目标模型，让 15 MiB 只作为前者的 WS/HTTP 选路阈值，而不是任意模型的内存上限。
 - 使用：`gateway.openai_ws.gpt_threshold_routing_enabled` 默认 `false`，运行时要求同时启用双链路；`dual_leg_enabled` 本身自动采用 GPT 判据，无需重复设置准备开关。两者均关闭时保持旧行为；`http_bridge_threshold_bytes` 保持已有字节阈值。
 - 行为：开启后仅对列入代码内 `openAIWSGPTThresholdModels` 的最终上游模型应用阈值；客户端别名先经渠道及账号映射。ctx_pool 首帧比较原始与改写体，adaptive handoff 额外比较恢复候选体。任一候选体达到阈值时，按原有兼容条件候选 HTTP。Grok 强制 HTTP 等独立规则不变。
