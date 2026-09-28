@@ -747,3 +747,53 @@ func TestAdaptiveWarmupReusesRealWebSocket(t *testing.T) {
 		t.Fatal("upstream connection leaked")
 	}
 }
+
+// TestAdaptiveStandaloneNamedOutputStaysOnUpstreamWS 锁定具名独立输入的判定边界：
+// Codex 会把外部提供的输入发成一条带 name、不带 call_id 的 function_call_output。
+// 该形态不属于孤儿工具结果，本轮应走上游 WS，而不是被守卫关闭连接。
+func TestAdaptiveStandaloneNamedOutputStaysOnUpstreamWS(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s, a, ws, httpUp := adaptiveFixture()
+	server, errs := startAdaptiveServer(t, s, a, nil)
+	client := dialAdaptive(t, server)
+
+	writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","input":[{"type":"function_call","call_id":"call_a","name":"shell","arguments":"{}"},{"type":"function_call_output","call_id":"call_a","output":"ok"},{"type":"function_call_output","name":"named_tool","output":"external input"}]}`)
+	request := requirePassthroughUpstreamWrite(t, ws, time.Second)
+	require.Contains(t, string(request), "call_a")
+	require.Contains(t, string(request), "named_tool")
+	ws.Send(`{"type":"response.completed","response":{"id":"resp_ws_named","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}`)
+	readAdaptiveCompleted(t, client)
+
+	require.Empty(t, httpUp.snapshot(), "具名独立输入不应触发上游 HTTP 回退")
+
+	_ = client.CloseNow()
+	select {
+	case <-errs:
+	case <-time.After(3 * time.Second):
+		t.Fatal("session did not exit")
+	}
+}
+
+// TestAdaptiveOrphanToolOutputStillClosesGuard 锁定本次修复未放宽的边界：真正无法配对的
+// 工具输出仍然以 1008 关闭连接。
+func TestAdaptiveOrphanToolOutputStillClosesGuard(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s, a, _, httpUp := adaptiveFixture()
+	server, errs := startAdaptiveServer(t, s, a, nil)
+	client := dialAdaptive(t, server)
+
+	writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","input":[{"type":"function_call_output","call_id":"call_orphan","output":"done"}]}`)
+
+	select {
+	case proxyErr := <-errs:
+		var closeErr *OpenAIWSClientCloseError
+		require.ErrorAs(t, proxyErr, &closeErr)
+		require.Equal(t, coderws.StatusPolicyViolation, closeErr.StatusCode())
+		require.Contains(t, closeErr.Reason(), "requires complete tool context")
+	case <-time.After(5 * time.Second):
+		t.Fatal("guard did not reject the frame")
+	}
+	require.Empty(t, httpUp.snapshot())
+
+	_ = client.CloseNow()
+}

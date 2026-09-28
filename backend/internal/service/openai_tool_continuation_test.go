@@ -264,6 +264,25 @@ func TestAnalyzeToolCallOutputContextCoverageBytes(t *testing.T) {
 			coversAllIDs: false,
 		},
 		{
+			// Codex 把外部提供的输入发成带 name 的 function_call_output，按设计不带
+			// call_id；HTTP 转发路径显式保留该形态，WS 判定同样不应把它当作缺失。
+			name: "standalone_named_function_output_is_not_missing_call_id",
+			body: map[string]any{"input": []any{
+				map[string]any{"type": "function_call_output", "name": "named_tool", "output": "external input"},
+			}},
+			hasOutput:    true,
+			coversAllIDs: true,
+		},
+		{
+			// 边界：缺 call_id 且没有 name 的输出仍按孤儿处理。
+			name: "unnamed_output_without_call_id_still_not_movable",
+			body: map[string]any{"input": []any{
+				map[string]any{"type": "function_call_output", "name": "  ", "output": "blank name"},
+			}},
+			hasOutput:    true,
+			coversAllIDs: false,
+		},
+		{
 			name: "mixed_context_and_reference_cover_all",
 			body: map[string]any{"input": []any{
 				map[string]any{"type": "function_call", "call_id": "call_a"},
