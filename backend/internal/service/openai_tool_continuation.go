@@ -50,6 +50,19 @@ func isCodexToolCallOutputItemType(typ string) bool {
 	}
 }
 
+// isCodexStandaloneNamedFunctionOutput 判断一个工具输出项是否为 Codex 的具名独立输入。
+// Codex 会把外部提供的输入发成一条不带前置工具调用的 function_call_output，并带上 name。
+// 这类项没有 call_id 是按设计如此，不是孤儿工具结果。
+//
+// HTTP 转发路径的 sanitizeOpenAIResponsesOrphanToolOutputs 显式保留该形态，WS 覆盖率
+// 判定也必须认它；两处共用本函数，避免判定条件再次出现偏差。
+func isCodexStandaloneNamedFunctionOutput(itemType, callID, name string) bool {
+	if strings.TrimSpace(itemType) != "function_call_output" {
+		return false
+	}
+	return strings.TrimSpace(callID) == "" && strings.TrimSpace(name) != ""
+}
+
 // NeedsToolContinuation 判定请求是否需要工具调用续链处理。
 // 满足以下任一信号即视为续链：previous_response_id、input 内包含工具输出/item_reference、
 // 或显式声明 tools/tool_choice。
@@ -252,6 +265,10 @@ func AnalyzeToolCallOutputContextCoverageBytes(body []byte) ToolCallOutputContex
 			coverage.HasFunctionCallOutput = true
 			callID := strings.TrimSpace(item.Get("call_id").String())
 			if callID == "" {
+				if isCodexStandaloneNamedFunctionOutput(itemType, callID, item.Get("name").String()) {
+					// 具名独立输入：没有 call_id 是按设计如此，既不参与配对，也不算缺失。
+					return
+				}
 				missingCallID = true
 				return
 			}
