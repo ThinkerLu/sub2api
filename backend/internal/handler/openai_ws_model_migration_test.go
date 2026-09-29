@@ -34,15 +34,22 @@ func TestWSModelMigrationHandlerFullFrameNativeSwitch(t *testing.T) {
 	runWSModelMigrationHandler(t, true, true)
 }
 
+func TestWSModelMigrationHandlerReconnectPrefersWSAfterHTTP(t *testing.T) {
+	runWSModelMigrationHandler(t, false, false, true)
+}
+
 func runWSModelMigrationHandler(t *testing.T, nativeProvider bool, fullFrameSwitch ...bool) {
 	var mu sync.Mutex
 	var models []string
 	var bodies [][]byte
-	makeEvent := func(body []byte) string {
+	var transports []string
+	initialHTTP := len(fullFrameSwitch) > 1 && fullFrameSwitch[1]
+	makeEvent := func(body []byte, transport string) string {
 		model := gjson.GetBytes(body, "model").String()
 		mu.Lock()
 		models = append(models, model)
 		bodies = append(bodies, body)
+		transports = append(transports, transport)
 		turn := len(models)
 		mu.Unlock()
 		return fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_%d","model":%q,"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`, turn, model)
@@ -54,7 +61,7 @@ func runWSModelMigrationHandler(t *testing.T, nativeProvider bool, fullFrameSwit
 				return
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
-			_, _ = fmt.Fprintf(w, "data: %s\n\n", makeEvent(body))
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", makeEvent(body, "http"))
 			return
 		}
 		conn, err := coderws.Accept(w, r, nil)
@@ -67,7 +74,7 @@ func runWSModelMigrationHandler(t *testing.T, nativeProvider bool, fullFrameSwit
 			if err != nil {
 				return
 			}
-			event := makeEvent(body)
+			event := makeEvent(body, "ws")
 			if err := conn.Write(r.Context(), coderws.MessageText, []byte(event)); err != nil {
 				return
 			}
@@ -77,6 +84,9 @@ func runWSModelMigrationHandler(t *testing.T, nativeProvider bool, fullFrameSwit
 	h := newOpenAIWSPassthroughHandlerHarness(t, upstream.URL, func(cfg *config.Config, a *service.Account) {
 		a.Extra["openai_apikey_responses_websockets_v2_mode"] = "adaptive"
 		a.Credentials["model_mapping"] = map[string]any{"gpt-5.1": "gpt-5.1"}
+		if initialHTTP {
+			cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes = 1024
+		}
 	})
 	old := h.accountRepo.account
 	target := old
@@ -100,7 +110,11 @@ func runWSModelMigrationHandler(t *testing.T, nativeProvider bool, fullFrameSwit
 	dial := func() *coderws.Conn {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		conn, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(h.serverURL, "http")+"/openai/v1/responses", &coderws.DialOptions{HTTPHeader: http.Header{"User-Agent": []string{"codex_cli_rs/0.155.0-alpha.16.4"}, "Thread-Id": []string{"migration-handler-test"}}})
+		version := "codex_cli_rs/0.155.0-alpha.16.4"
+		if initialHTTP {
+			version = "codex_cli_rs/0.158.0-alpha.2.1"
+		}
+		conn, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(h.serverURL, "http")+"/openai/v1/responses", &coderws.DialOptions{HTTPHeader: http.Header{"User-Agent": []string{version}, "Thread-Id": []string{"migration-handler-test"}}})
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = conn.CloseNow() })
 		return conn
@@ -119,7 +133,11 @@ func runWSModelMigrationHandler(t *testing.T, nativeProvider bool, fullFrameSwit
 	}
 	first := dial()
 	full := `{"type":"response.create","model":"deepseek-v4-pro","input":[{"role":"user","content":"hello"},{"type":"reasoning","encrypted_content":"gAAAAA-old"},{"role":"assistant","content":"answer"},{"role":"user","content":"next"}]}`
-	write(first, `{"type":"response.create","model":"gpt-5.1","input":[{"role":"user","content":"hello"}]}`)
+	firstBody := `{"type":"response.create","model":"gpt-5.1","input":[{"role":"user","content":"hello"}]}`
+	if initialHTTP {
+		firstBody = strings.Repeat(" ", 1200) + firstBody
+	}
+	write(first, firstBody)
 	require.Equal(t, "resp_1", gjson.GetBytes(read(first), "response.id").String())
 	if len(fullFrameSwitch) > 0 && fullFrameSwitch[0] {
 		write(first, full)
@@ -169,12 +187,18 @@ func runWSModelMigrationHandler(t *testing.T, nativeProvider bool, fullFrameSwit
 	require.Equal(t, "resp_3", gjson.GetBytes(read(back), "response.id").String())
 	mu.Lock()
 	require.Equal(t, []string{"gpt-5.1", "deepseek-v4-pro", "gpt-5.1"}, models)
+	if initialHTTP {
+		require.Equal(t, []string{"http", "ws", "ws"}, transports)
+	}
 	mu.Unlock()
 	require.Eventually(t, func() bool { return len(h.usageRepo.created) == 3 }, 3*time.Second, time.Millisecond)
 	for range 3 {
 		usage := <-h.usageRepo.created
 		accountID := old.ID
 		upstream := service.UsageUpstreamTransportWebSocket
+		if initialHTTP && usage.RequestID == "resp_1" {
+			upstream = service.UsageUpstreamTransportHTTP
+		}
 		if usage.RequestID == "resp_2" {
 			accountID = target.ID
 			if nativeProvider {

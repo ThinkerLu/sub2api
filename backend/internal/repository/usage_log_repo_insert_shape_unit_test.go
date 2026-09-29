@@ -21,6 +21,23 @@ var (
 	usageLogPlaceholderRe       = regexp.MustCompile(`\$(\d+)`)
 )
 
+func usageLogInsertColumnIndex(t *testing.T, name string) int {
+	t.Helper()
+	prepared := prepareUsageLogInsert(&service.UsageLog{})
+	query, _ := buildUsageLogBestEffortInsertQuery([]usageLogInsertPrepared{prepared})
+	match := regexp.MustCompile(`(?s)INSERT INTO usage_logs \((.*?)\)`).FindStringSubmatch(query)
+	require.Len(t, match, 2)
+	columns := strings.Split(match[1], ",")
+	require.Len(t, columns, len(usageLogInsertArgTypes))
+	for i, column := range columns {
+		if strings.TrimSpace(column) == name {
+			return i
+		}
+	}
+	t.Fatalf("missing INSERT column %s", name)
+	return -1
+}
+
 // newSQLCapturingMock 返回把实际下发 SQL 记录到 captured 的 sqlmock；语句一律视为匹配，
 // 参数仍由 WithArgs 校验。
 func newSQLCapturingMock(t *testing.T, captured *[]string) (*sql.DB, sqlmock.Sqlmock) {
@@ -129,7 +146,7 @@ func TestPrepareUsageLogInsert_UpstreamRequestIDArgWiring(t *testing.T) {
 	})
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
 
-	idx := len(prepared.args) - 4
+	idx := usageLogInsertColumnIndex(t, "upstream_request_id")
 	arg, ok := prepared.args[idx].(sql.NullString)
 	require.True(t, ok, "upstream_request_id arg should be sql.NullString, got %T", prepared.args[idx])
 	require.True(t, arg.Valid)

@@ -1,5 +1,7 @@
 # 使用记录的双向传输维度
 
+> 2026-09-29 更新：[HTTP 入站独立选择上游 WS](2026-09-29-http-ws-independent-routing.md) 补齐普通 HTTP 请求进入 WS 上游的路由。原有标签和筛选不变，新集成测试检查实际 WS 转发结果交给 RecordUsage 后的 1/2 字段，而不只是手工构造用量记录。
+
 目标版本：`v0.2.8-beta1-dual-leg-thinking-ws`（待发布）。关联提交为本功能分支的 `feat(usage): record ingress transport and expose HTTP to WS filters`。
 
 ## 目的和使用

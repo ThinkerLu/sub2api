@@ -1,6 +1,8 @@
 package service
 
 import (
+	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +18,15 @@ const (
 )
 
 const openAIClientTransportContextKey = "openai_client_transport"
+const openAIHTTPWSWriteAttemptedKey = "openai_http_ws_write_attempted"
+
+func writeOpenAIHTTPFullContextRequired(c *gin.Context) error {
+	c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
+		"type": "invalid_request_error", "code": "full_context_required",
+		"message": "HTTP route requires full input without a connection-local previous_response_id",
+	}})
+	return errors.New("HTTP route cannot reuse connection-local previous_response_id")
+}
 
 // SetOpenAIClientTransport 标记当前请求的客户端入站协议。
 func SetOpenAIClientTransport(c *gin.Context, transport OpenAIClientTransport) {
@@ -58,14 +69,4 @@ func normalizeOpenAIClientTransport(transport OpenAIClientTransport) OpenAIClien
 	default:
 		return OpenAIClientTransportUnknown
 	}
-}
-
-func resolveOpenAIWSDecisionByClientTransport(
-	decision OpenAIWSProtocolDecision,
-	clientTransport OpenAIClientTransport,
-) OpenAIWSProtocolDecision {
-	if clientTransport == OpenAIClientTransportHTTP {
-		return openAIWSHTTPDecision("client_protocol_http")
-	}
-	return decision
 }

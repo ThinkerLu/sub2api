@@ -18,7 +18,18 @@ import (
 )
 
 // Forward forwards request to OpenAI API
-func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
+func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (forwardResult *OpenAIForwardResult, forwardErr error) {
+	httpHandshakeFallback, httpFallbackSubmitted := false, false
+	defer func() {
+		var failover *UpstreamFailoverError
+		if httpFallbackSubmitted && errors.As(forwardErr, &failover) {
+			forwardErr = writeOpenAIHTTPFallbackExecutionUnknown(c)
+		}
+	}()
+	ingressBodyBytes := len(body)
+	if c != nil {
+		c.Set(openAIHTTPWSWriteAttemptedKey, false)
+	}
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
@@ -119,10 +130,20 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 	}
 	wsDecision := s.getOpenAIWSProtocolResolver().Resolve(account)
-	// 仅允许 WS 入站请求走 WS 上游，避免出现 HTTP -> WS 协议混用。
-	wsDecision = resolveOpenAIWSDecisionByClientTransport(wsDecision, GetOpenAIClientTransport(c))
+	// Select upstream independently; HTTP clients receive JSON or SSE from WS events.
 	passthroughEnabled := account.IsOpenAIPassthroughEnabled()
 	compactPath := isOpenAIResponsesCompactPath(c)
+	if compactPath {
+		wsDecision = openAIWSHTTPDecision("compact_requires_http")
+	} else if GetOpenAIClientTransport(c) == OpenAIClientTransportHTTP &&
+		wsDecision.Transport == OpenAIUpstreamTransportResponsesWebsocketV2 &&
+		s.openAIWSRouteExceedsThreshold(normalizeOpenAIModelForUpstream(account, account.GetMappedModel(gjson.GetBytes(body, "model").String())), ingressBodyBytes, len(body)) {
+		wsDecision = openAIWSHTTPDecision("gpt_payload_threshold")
+	}
+	if wsDecision.Reason == "gpt_payload_threshold" && gjson.GetBytes(body, "previous_response_id").String() != "" &&
+		(account.UsesOpenAICodexProtocol() || gjson.GetBytes(body, "store").Type == gjson.False) {
+		return nil, writeOpenAIHTTPFullContextRequired(c)
+	}
 	if shouldFlattenOpenAIResponsesNamespaces(account, wsDecision.Transport, passthroughEnabled, compactPath) {
 		body, err = flattenOpenAIResponsesNamespaces(c, body)
 		if err != nil {
@@ -270,7 +291,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 		return nil, errors.New("openai ws v1 is temporarily unsupported; use ws v2")
 	}
-	if passthroughEnabled {
+	if passthroughEnabled && wsDecision.Transport != OpenAIUpstreamTransportResponsesWebsocketV2 {
 		attemptImageIntentInvalidated := false
 		if isCodexCLI && codexImageGenerationExplicitToolPolicy == codexImageGenerationExplicitToolPolicyStrip {
 			strippedBody, changed, stripErr := stripOpenAIImageGenerationToolsFromRawPayload(body)
@@ -831,8 +852,19 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, err
 	}
 	SetOpsUpstreamModel(c, upstreamModel)
+	if GetOpenAIClientTransport(c) == OpenAIClientTransportHTTP &&
+		wsDecision.Transport == OpenAIUpstreamTransportResponsesWebsocketV2 &&
+		s.openAIWSRouteExceedsThreshold(upstreamModel, ingressBodyBytes, len(body)) {
+		wsDecision = openAIWSHTTPDecision("gpt_payload_threshold")
+		c.Set("openai_ws_transport_decision", string(wsDecision.Transport))
+		c.Set("openai_ws_transport_reason", wsDecision.Reason)
+	}
+	if wsDecision.Reason == "gpt_payload_threshold" && gjson.GetBytes(body, "previous_response_id").String() != "" &&
+		(account.UsesOpenAICodexProtocol() || gjson.GetBytes(body, "store").Type == gjson.False) {
+		return nil, writeOpenAIHTTPFullContextRequired(c)
+	}
 
-	// 命中 WS 时仅走 WebSocket Mode；不再自动回退 HTTP。
+	// WS 执行错误不回退 HTTP；只有发送前的最终帧大小检查可以重新选路。
 	if wsDecision.Transport == OpenAIUpstreamTransportResponsesWebsocketV2 {
 		// WS 分支需要结构化 payload 与重连恢复，命中后再触发 full-map decode。
 		wsReqBody, err := ensureReqBody()
@@ -955,7 +987,29 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			if wsErr == nil {
 				break
 			}
+			var routeErr *openAIWSFallbackError
+			if errors.As(wsErr, &routeErr) && routeErr.Reason == "http_gpt_payload_threshold" &&
+				GetOpenAIClientTransport(c) == OpenAIClientTransportHTTP && !c.GetBool(openAIHTTPWSWriteAttemptedKey) {
+				if openAIWSPayloadString(wsReqBody, "previous_response_id") != "" && (account.UsesOpenAICodexProtocol() || s.isOpenAIWSStoreDisabledInRequest(wsReqBody, account)) {
+					return nil, writeOpenAIHTTPFullContextRequired(c)
+				}
+				wsDecision = openAIWSHTTPDecision("gpt_payload_threshold")
+				c.Set("openai_ws_transport_decision", string(wsDecision.Transport))
+				c.Set("openai_ws_transport_reason", wsDecision.Reason)
+				break
+			}
+			// A failed write/read does not prove the upstream did not execute the turn.
+			if GetOpenAIClientTransport(c) == OpenAIClientTransportHTTP && c.GetBool(openAIHTTPWSWriteAttemptedKey) {
+				break
+			}
 			if c != nil && c.Writer != nil && c.Writer.Written() {
+				break
+			}
+			if s.canFallbackHTTPAfterWSHandshake(ctx, c, account, body, wsErr) {
+				httpHandshakeFallback = true
+				wsDecision = openAIWSHTTPDecision("ws_handshake_fallback")
+				c.Set("openai_ws_transport_decision", string(wsDecision.Transport))
+				c.Set("openai_ws_transport_reason", wsDecision.Reason)
 				break
 			}
 			var taskRecoveredErr *agentIdentityTaskRecoveredError
@@ -1063,8 +1117,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			return wsResult, nil
 		}
-		s.writeOpenAIWSFallbackErrorResponse(c, account, wsErr)
-		return nil, wsErr
+		if wsDecision.Transport != OpenAIUpstreamTransportHTTPSSE {
+			s.writeOpenAIWSFallbackErrorResponse(c, account, wsErr)
+			return wsResult, wsErr
+		}
 	}
 
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
@@ -1084,6 +1140,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	agentTaskRecoveryTried := false
 	rejectedFieldRetryState := openAIResponsesRejectedFieldRetryStateForRequest(c, body)
 	for {
+		if httpFallbackSubmitted {
+			return nil, writeOpenAIHTTPFallbackExecutionUnknown(c)
+		}
 		// Build upstream request
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 		var headerGuard *openAIFirstOutputHeaderGuard
@@ -1111,6 +1170,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 		// Send request
 		upstreamStart := time.Now()
+		httpFallbackSubmitted = httpHandshakeFallback
 		resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 		if headerGuard != nil && headerGuard.stopHeaderWait() {
