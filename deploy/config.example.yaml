@@ -345,6 +345,14 @@ gateway:
     # 全局强制 OpenAI Responses 上游使用 HTTP/SSE，不使用 WebSocket（紧急回滚开关）。
     # 此开关不强制 HTTP/1.1；HTTP/2 由 gateway.openai_http2 单独控制。
     force_http: false
+    # Adaptive WS 上下文累积策略：命中账号的纯 WS 轮次不保留本地历史，
+    # 只有 HTTP 桥轮次继续累积；后续缺少历史时由客户端带完整上下文重连。
+    # 默认关闭，保持现有累积行为。
+    context_policy:
+      enabled: false
+      # 外置策略文件。挂载目录而非单文件，便于原子替换和热重载。
+      file: /app/ws-context-policy/ws-context-policy.yaml
+      reload_interval_seconds: 5
     # 允许在 WSv2 下按策略恢复 store=true（默认 false）
     allow_store_recovery: false
     # ingress 模式收到 previous_response_not_found 时，自动去掉 previous_response_id 重试一次（默认 true）

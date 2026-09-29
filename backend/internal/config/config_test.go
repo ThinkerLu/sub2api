@@ -521,6 +521,15 @@ func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	if cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes != 15*1024*1024 {
 		t.Fatalf("Gateway.OpenAIWS.HTTPBridgeThresholdBytes = %d, want %d", cfg.Gateway.OpenAIWS.HTTPBridgeThresholdBytes, 15*1024*1024)
 	}
+	if cfg.Gateway.OpenAIWS.ContextPolicy.Enabled {
+		t.Fatalf("Gateway.OpenAIWS.ContextPolicy.Enabled = true, want false")
+	}
+	if cfg.Gateway.OpenAIWS.ContextPolicy.File != "./ws-context-policy/ws-context-policy.yaml" {
+		t.Fatalf("Gateway.OpenAIWS.ContextPolicy.File = %q, want %q", cfg.Gateway.OpenAIWS.ContextPolicy.File, "./ws-context-policy/ws-context-policy.yaml")
+	}
+	if cfg.Gateway.OpenAIWS.ContextPolicy.ReloadIntervalSeconds != 5 {
+		t.Fatalf("Gateway.OpenAIWS.ContextPolicy.ReloadIntervalSeconds = %d, want 5", cfg.Gateway.OpenAIWS.ContextPolicy.ReloadIntervalSeconds)
+	}
 	if cfg.Gateway.OpenAIWS.RetryBackoffInitialMS != 120 {
 		t.Fatalf("Gateway.OpenAIWS.RetryBackoffInitialMS = %d, want 120", cfg.Gateway.OpenAIWS.RetryBackoffInitialMS)
 	}
@@ -2298,6 +2307,21 @@ func TestValidateConfig_OpenAIWSRules(t *testing.T) {
 			name:    "fallback_cooldown_seconds 不能为负数",
 			mutate:  func(c *Config) { c.Gateway.OpenAIWS.FallbackCooldownSeconds = -1 },
 			wantErr: "gateway.openai_ws.fallback_cooldown_seconds",
+		},
+		{
+			name: "context_policy 开启时 file 不能为空",
+			mutate: func(c *Config) {
+				c.Gateway.OpenAIWS.ContextPolicy.Enabled = true
+				c.Gateway.OpenAIWS.ContextPolicy.File = "  "
+			},
+			wantErr: "gateway.openai_ws.context_policy.file",
+		},
+		{
+			name: "context_policy reload_interval_seconds 不能为负数",
+			mutate: func(c *Config) {
+				c.Gateway.OpenAIWS.ContextPolicy.ReloadIntervalSeconds = -1
+			},
+			wantErr: "gateway.openai_ws.context_policy.reload_interval_seconds",
 		},
 		{
 			name:    "store_disabled_conn_mode 必须为 strict|adaptive|off",

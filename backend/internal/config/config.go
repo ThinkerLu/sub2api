@@ -1284,6 +1284,8 @@ type GatewayOpenAIWSConfig struct {
 	HTTPBridgeEnabled bool `mapstructure:"http_bridge_enabled"`
 	// HTTPBridgeThresholdBytes: 触发 HTTP bridge 的入站 WS payload 阈值。
 	HTTPBridgeThresholdBytes int64 `mapstructure:"http_bridge_threshold_bytes"`
+	// ContextPolicy: adaptive WS 上下文累积策略。
+	ContextPolicy GatewayOpenAIWSContextPolicyConfig `mapstructure:"context_policy"`
 
 	// Feature 开关：v2 优先于 v1
 	ResponsesWebsockets   bool `mapstructure:"responses_websockets"`
@@ -1343,6 +1345,14 @@ type GatewayOpenAIWSConfig struct {
 	StickyPreviousResponseTTLSeconds int `mapstructure:"sticky_previous_response_ttl_seconds"`
 
 	SchedulerScoreWeights GatewayOpenAIWSSchedulerScoreWeights `mapstructure:"scheduler_score_weights"`
+}
+
+// GatewayOpenAIWSContextPolicyConfig 控制 adaptive WS 历史是否只保留 HTTP 桥轮次。
+// 策略数据放在外置 YAML 中，并由独立快照加载器热重载；关闭时保持原有累积行为。
+type GatewayOpenAIWSContextPolicyConfig struct {
+	Enabled               bool   `mapstructure:"enabled"`
+	File                  string `mapstructure:"file"`
+	ReloadIntervalSeconds int    `mapstructure:"reload_interval_seconds"`
 }
 
 // GatewayOpenAIWSSchedulerScoreWeights 账号调度打分权重。
@@ -2421,6 +2431,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_ws.client_read_limit_bytes", 64*1024*1024)
 	viper.SetDefault("gateway.openai_ws.http_bridge_enabled", true)
 	viper.SetDefault("gateway.openai_ws.http_bridge_threshold_bytes", 15*1024*1024)
+	viper.SetDefault("gateway.openai_ws.context_policy.enabled", false)
+	viper.SetDefault("gateway.openai_ws.context_policy.file", "./ws-context-policy/ws-context-policy.yaml")
+	viper.SetDefault("gateway.openai_ws.context_policy.reload_interval_seconds", 5)
 	viper.SetDefault("gateway.openai_ws.responses_websockets", false)
 	viper.SetDefault("gateway.openai_ws.responses_websockets_v2", true)
 	viper.SetDefault("gateway.openai_ws.max_conns_per_account", 128)
@@ -3486,6 +3499,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.OpenAIWS.HTTPBridgeEnabled && c.Gateway.OpenAIWS.HTTPBridgeThresholdBytes == 0 {
 		return fmt.Errorf("gateway.openai_ws.http_bridge_threshold_bytes must be positive when http_bridge_enabled is true")
+	}
+	if c.Gateway.OpenAIWS.ContextPolicy.Enabled && strings.TrimSpace(c.Gateway.OpenAIWS.ContextPolicy.File) == "" {
+		return fmt.Errorf("gateway.openai_ws.context_policy.file must be configured when context_policy.enabled is true")
+	}
+	if c.Gateway.OpenAIWS.ContextPolicy.ReloadIntervalSeconds < 0 {
+		return fmt.Errorf("gateway.openai_ws.context_policy.reload_interval_seconds must be non-negative")
 	}
 	if c.Gateway.OpenAIWS.FallbackCooldownSeconds < 0 {
 		return fmt.Errorf("gateway.openai_ws.fallback_cooldown_seconds must be non-negative")
