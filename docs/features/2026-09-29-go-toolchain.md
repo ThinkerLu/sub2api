@@ -2,6 +2,8 @@
 
 日期：2026-09-29。开发分支 `codex/dual-leg-http-completion`，基于发布分支 `f7e0f0f62`。工具修订 r1，不改变应用版本，不涉及服务端部署或数据迁移。
 
+实现提交：`ef00429df`；随 `690f49432` 合入 `codex/release-sub2api`。
+
 ## 安装与使用
 
 Go 版本读取 `backend/go.mod`，当前为 1.27.0。`tools/install-go.sh` 从 Go 官方下载 JSON 清单获取本机架构的归档和 SHA256，验证后在 `$HOME/.local/share/go/<version>` 安装。已存在的安装只校验和运行标准库测试，不覆盖；损坏安装直接报错。
