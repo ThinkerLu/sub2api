@@ -1,4 +1,4 @@
-# v0.2.9-beta1 主服务器发布包
+# v0.2.9-beta1 主服务器发布包（交付工具 r1）
 
 完整版本为 `v0.2.9-beta1-ws-standalone-named-output`。唯一目标：`ac.thinkerlu.top`（主机名 `vm75142.akkocloud.com`），域名 `subapi.thinkerlu.top`，Compose 目录 `/home/thinkerlu/sub2api-deploy`。仅使用单文件 `docker-compose.yml`，不得套用备用机覆盖文件或 18080 健康端口。
 
@@ -25,7 +25,7 @@ sudo python3 release.py preflight
 sudo ./deploy.sh
 ```
 
-默认在切换前备份 `.env`、`docker-compose.yml`、旧镜像、数据库 `pg_dump -Fc` 和迁移摘要。经操作人明确接受风险时，可同时给预检和部署传入 `--skip-database-backup`；配置和旧镜像仍会备份，但发布包不再提供数据库灾难恢复。部署会停止应用并排空 WS 恢复窗口，最多等待 130 秒，期间请求会中断。
+默认在切换前备份 `.env`、`docker-compose.yml`、旧镜像、数据库 `pg_dump -Fc` 和迁移摘要。旧镜像通过 `docker save | gzip -1` 直接写成压缩归档，不生成同等大小的未压缩 tar；部署前还会清理未被发布指针引用的未完成备份目录。经操作人明确接受风险时，可同时给预检和部署传入 `--skip-database-backup`；配置和旧镜像仍会备份，但发布包不再提供数据库灾难恢复。部署会停止应用并排空 WS 恢复窗口，最多等待 130 秒，期间请求会中断。
 
 本版本不新增或改写数据库迁移，部署后要求迁移记录与部署前完全一致。健康验证使用容器内 8080 和主服务器域名。部署后还需重新连接客户端并验证真实请求；健康接口通过不等于上游业务验收。
 
@@ -35,7 +35,7 @@ sudo ./deploy.sh
 sudo ./rollback.sh
 ```
 
-脚本恢复 beta3 应用镜像、`.env` 和 Compose 文件，保留数据库与发布后业务数据，不执行数据库倒退。若迁移记录发生变化，脚本拒绝自动回滚并保留当前状态供人工处理。
+脚本从压缩归档恢复 beta3 应用镜像，并恢复 `.env` 和 Compose 文件；数据库与发布后业务数据保留，不执行数据库倒退。若迁移记录发生变化，脚本拒绝自动回滚并保留当前状态供人工处理。
 
 ## 组包来源
 

@@ -169,16 +169,55 @@ class DualLegReleaseTests(unittest.TestCase):
             (backup / 'backup.json').write_text(json.dumps({
                 'new_commit': 'a' * 40, 'old_commit': release.BASE_COMMIT,
                 'old_image_sha256': 'digest'}))
-            (backup / 'old-image.tar').write_bytes(b'image')
+            (backup / release.IMAGE_BACKUP).write_bytes(b'image')
             (backup / 'migrations.before.txt').write_text('241_usage_log_traffic_bytes.sql|before\n')
             with patch.object(release, 'digest', return_value='digest'), \
                  patch.object(release, 'docker'), \
+                 patch.object(release, 'run'), \
                  patch.object(release, 'image_id', return_value=release.BASE_ID), \
                  patch.object(release, 'migrations', return_value='242_unexpected.sql|after\n'), \
                  patch.object(release, 'atomic') as atomic:
                 with self.assertRaises(AssertionError):
                     release.restore(backup, {'commit': 'a' * 40})
                 atomic.assert_not_called()
+
+    def test_cleanup_removes_only_incomplete_unpointed_backups(self):
+        with tempfile.TemporaryDirectory() as directory:
+            deploy = Path(directory)
+            root = deploy / 'backups'
+            root.mkdir()
+            incomplete = root / (release.BACKUP_PREFIX + 'incomplete')
+            incomplete.mkdir()
+            (incomplete / 'database.dump').write_bytes(b'partial')
+            complete = root / (release.BACKUP_PREFIX + 'complete')
+            complete.mkdir()
+            (complete / 'backup.json').write_text('{}')
+            other = root / 'other-release'
+            other.mkdir()
+            pointed = root / (release.BACKUP_PREFIX + 'pointed')
+            pointed.mkdir()
+            pointer = deploy / '.pointer'
+            pointer.write_text(str(pointed) + '\n')
+            with patch.object(release, 'DEPLOY', deploy), patch.object(release, 'POINTER', pointer):
+                self.assertEqual(release.cleanup_incomplete_backups(), [incomplete.name])
+            self.assertFalse(incomplete.exists())
+            self.assertTrue(complete.exists())
+            self.assertTrue(other.exists())
+            self.assertTrue(pointed.exists())
+
+    def test_base_image_backup_uses_compressed_stream_and_verifies_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            backup = Path(directory)
+            def run(args, **kwargs):
+                if args[0] == 'bash':
+                    (backup / release.IMAGE_BACKUP).write_bytes(b'compressed-image')
+                return ''
+            with patch.object(release, 'run', side_effect=run) as mocked:
+                archive = release.save_base_image(backup)
+            self.assertEqual(archive.name, release.IMAGE_BACKUP)
+            self.assertEqual(mocked.call_args_list[0].args[0][0], 'bash')
+            self.assertIn('gzip -1', mocked.call_args_list[0].args[0][4])
+            self.assertEqual(mocked.call_args_list[1].args[0][:2], ['gzip', '-t'])
 
     def test_requires_identical_migrations(self):
         before = ('241_usage_log_traffic_bytes.sql|' + 'a' * 64 + '\n' +

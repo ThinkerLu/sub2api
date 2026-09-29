@@ -166,6 +166,7 @@ def main():
                         rollback_binary_sha256=BASE_BINARY_SHA256,
                         binary_sha256=sha(binary), build_date=build_date,
                         database_migrations_changed=False, additive_migrations={},
+                        delivery_revision='r1', image_backup_format='docker-save-gzip',
                         deployment_scripts_commit=commit,
                         source_package_target='ac.thinkerlu.top', compose_files=['docker-compose.yml'],
                         health_url='https://subapi.thinkerlu.top/health')

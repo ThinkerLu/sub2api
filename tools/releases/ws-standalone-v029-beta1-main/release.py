@@ -25,6 +25,8 @@ BASE_BINARY_SHA256 = '3493620575780e86f888ae5dad02da04f2fa8424ae8a1ca835eb0dac90
 BASE_IDS = {BASE_ID, BASE_CONFIG_ID}
 POINTER = DEPLOY / '.ws-standalone-v029-beta1-main-backup-path'
 VERSION = 'v0.2.9-beta1-ws-standalone-named-output'
+BACKUP_PREFIX = 'ws-standalone-v029-beta1-main-'
+IMAGE_BACKUP = 'old-image.tar.gz'
 
 
 def run(args, *, output=None, input_text=None):
@@ -50,6 +52,35 @@ def digest(path):
         for chunk in iter(lambda: source.read(1024 * 1024), b''):
             sha.update(chunk)
     return sha.hexdigest()
+
+
+def backup_root():
+    return DEPLOY / 'backups'
+
+
+def cleanup_incomplete_backups():
+    root = backup_root()
+    if not root.is_dir():
+        return []
+    pointed = None
+    if POINTER.is_file():
+        pointed = Path(POINTER.read_text().strip()).resolve()
+    removed = []
+    for path in root.iterdir():
+        if path.name.startswith(BACKUP_PREFIX) and path.is_dir() and path.resolve() != pointed:
+            if not (path / 'backup.json').is_file():
+                shutil.rmtree(path)
+                removed.append(path.name)
+    return removed
+
+
+def save_base_image(backup):
+    archive = backup / IMAGE_BACKUP
+    run(['bash', '-o', 'pipefail', '-c', 'docker save "$1" | gzip -1 > "$2"',
+         'bash', BASE_IMAGE, str(archive)])
+    assert archive.is_file() and archive.stat().st_size > 0, '旧镜像备份为空'
+    run(['gzip', '-t', str(archive)])
+    return archive
 
 
 def verify_package(manifest):
@@ -204,8 +235,10 @@ def check_preflight(manifest, *, skip_database_backup=False):
 def restore(backup, manifest):
     meta = json.loads((backup / 'backup.json').read_text())
     assert meta['new_commit'] == manifest['commit'] and meta['old_commit'] == BASE_COMMIT
-    assert digest(backup / 'old-image.tar') == meta['old_image_sha256'], '旧镜像备份损坏'
-    docker('load', '-i', str(backup / 'old-image.tar'))
+    archive = backup / meta.get('old_image_backup', IMAGE_BACKUP)
+    assert archive.parent == backup and archive.name == IMAGE_BACKUP, '旧镜像备份路径不合法'
+    assert digest(archive) == meta['old_image_sha256'], '旧镜像备份损坏'
+    run(['bash', '-o', 'pipefail', '-c', 'gzip -dc "$1" | docker load', 'bash', str(archive)])
     assert image_id(BASE_IMAGE) in BASE_IDS, '回滚镜像摘要不匹配'
     compatible_migrations((backup / 'migrations.before.txt').read_text(), migrations(), manifest)
     drain_recovery_window()
@@ -228,6 +261,8 @@ def backup_database(backup, *, skip_database_backup=False):
 
 def deploy(manifest, *, skip_database_backup=False):
     baseline = check_preflight(manifest, skip_database_backup=skip_database_backup)
+    for name in cleanup_incomplete_backups():
+        print('已清理未完成的旧备份：' + name, flush=True)
     archive = HERE / manifest['archive']
     docker('load', '-i', str(archive))
     assert image_id(manifest['image']) in (manifest['image_id'], manifest['image_config_digest']), '新镜像摘要不匹配'
@@ -235,16 +270,17 @@ def deploy(manifest, *, skip_database_backup=False):
                                         '--entrypoint', '/app/sub2api', manifest['image'], '--version')
     assert not POINTER.exists(), '已有该发布的回滚记录，拒绝覆盖'
     stamp = time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:6]
-    backup = DEPLOY / 'backups' / ('ws-standalone-v029-beta1-main-' + stamp)
+    backup = backup_root() / (BACKUP_PREFIX + stamp)
     backup.mkdir(parents=True, mode=0o700)
     for name in ('.env', 'docker-compose.yml'):
         shutil.copy2(DEPLOY / name, backup / name)
         (backup / name).chmod(0o600)
     (backup / 'migrations.before.txt').write_text(baseline)
     database_meta = backup_database(backup, skip_database_backup=skip_database_backup)
-    docker('save', '-o', str(backup / 'old-image.tar'), BASE_IMAGE)
+    image_backup = save_base_image(backup)
     meta = {'old_commit': BASE_COMMIT, 'new_commit': manifest['commit'],
-            'old_image_sha256': digest(backup / 'old-image.tar'), **database_meta}
+            'old_image_backup': image_backup.name,
+            'old_image_sha256': digest(image_backup), **database_meta}
     (backup / 'backup.json').write_text(json.dumps(meta, indent=2) + '\n')
     atomic(POINTER, str(backup) + '\n')
     try:
