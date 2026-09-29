@@ -28,6 +28,44 @@ func (u *dualLegFailFirstHTTP) Do(r *http.Request, p string, a int64, n int) (*h
 
 type dualLegFailedDialer struct{}
 
+type dualLegRecoveringDialer struct {
+	calls atomic.Int32
+	conn  *stagedPassthroughConn
+}
+
+func (d *dualLegRecoveringDialer) Dial(context.Context, string, http.Header, string) (openAIWSClientConn, int, http.Header, error) {
+	if d.calls.Add(1) == 1 {
+		return nil, http.StatusUpgradeRequired, nil, io.EOF
+	}
+	return d.conn, http.StatusSwitchingProtocols, nil, nil
+}
+
+func TestDualLegHandshakeRecoveryReattemptsWS(t *testing.T) {
+	s, account, ws, httpUp := adaptiveFixture()
+	dialer := &dualLegRecoveringDialer{conn: ws}
+	s.openaiWSPassthroughDialer = dialer
+	server, errs := startAdaptiveServer(t, s, account, nil)
+	client := dialAdaptive(t, server)
+	writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","input":[{"role":"user","content":"first"}]}`)
+	readAdaptiveCompleted(t, client)
+	require.Len(t, httpUp.snapshot(), 1)
+	writeAdaptive(t, client, `{"type":"response.create","model":"gpt-5.1","previous_response_id":"resp_http_1","input":[{"role":"user","content":"next"}]}`)
+	body := requirePassthroughUpstreamWrite(t, ws, time.Second)
+	require.Empty(t, gjson.GetBytes(body, "previous_response_id").String())
+	require.Contains(t, string(body), "first")
+	require.Contains(t, string(body), "next")
+	ws.Send(`{"type":"response.completed","response":{"id":"resp_recovered_ws","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}`)
+	readAdaptiveCompleted(t, client)
+	require.EqualValues(t, 2, dialer.calls.Load())
+	require.Len(t, httpUp.snapshot(), 1)
+	_ = client.CloseNow()
+	select {
+	case <-errs:
+	case <-time.After(3 * time.Second):
+		t.Fatal("session did not exit")
+	}
+}
+
 func (*dualLegFailedDialer) Dial(context.Context, string, http.Header, string) (openAIWSClientConn, int, http.Header, error) {
 	return nil, http.StatusBadGateway, nil, io.EOF
 }

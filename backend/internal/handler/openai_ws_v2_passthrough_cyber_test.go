@@ -116,6 +116,7 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, conf
 		h.ResponsesWebSocket(c)
 		handlerDoneOnce.Do(func() { close(handlerDone) })
 	})
+	router.POST("/openai/v1/responses", h.Responses)
 	handlerServer := httptest.NewServer(router)
 	t.Cleanup(handlerServer.Close)
 

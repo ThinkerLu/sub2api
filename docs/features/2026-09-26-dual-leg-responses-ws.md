@@ -2,6 +2,8 @@
 
 > beta2 更新：新增环境开关、恢复灰度配置和内存预算已移除；以下为 beta1 历史设计。当前行为见 [双链路默认生效](2026-09-26-dual-leg-default-no-budget.md)。
 
+> 2026-09-29 更新：普通 HTTP 入站原来被固定为 HTTP 上游，本轮补全独立 WS 选路。四种传输组合、当前测试和限制见 [HTTP→WS 补全](2026-09-29-http-ws-independent-routing.md)，不以 beta1 历史测试说明替代本轮验收。
+
 目标版本：`v0.2.8-beta1-dual-leg-thinking-ws`（待发布）。开发基线为 `326a74ac3`，关联本分支 `feat(ws): route adaptive turns with bounded shared reservations` 提交。
 
 ## 目的和使用

@@ -71,6 +71,7 @@ func TestPassthroughIngressFollowUpCallsBeforeTurnAfterBeforeRequest(t *testing.
 	var hooksMu sync.Mutex
 	var callbacks []string
 	afterTurnCalls := 0
+	afterTurns := make(chan struct{}, 4)
 	hooks := &OpenAIWSIngressHooks{
 		BeforeRequest: func(int, []byte, string) error {
 			hooksMu.Lock()
@@ -88,6 +89,7 @@ func TestPassthroughIngressFollowUpCallsBeforeTurnAfterBeforeRequest(t *testing.
 			hooksMu.Lock()
 			afterTurnCalls++
 			hooksMu.Unlock()
+			afterTurns <- struct{}{}
 		},
 	}
 
@@ -117,6 +119,14 @@ func TestPassthroughIngressFollowUpCallsBeforeTurnAfterBeforeRequest(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, "response.completed", gjson.GetBytes(event, "type").String())
 
+	// Receiving the terminal frame does not synchronize with the server's AfterTurn callback.
+	for range 2 {
+		select {
+		case <-afterTurns:
+		case <-time.After(3 * time.Second):
+			t.Fatal("AfterTurn did not finish")
+		}
+	}
 	hooksMu.Lock()
 	gotCallbacks := append([]string(nil), callbacks...)
 	gotAfter := afterTurnCalls

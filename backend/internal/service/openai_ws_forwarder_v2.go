@@ -72,6 +72,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	}
 	setOpenAIWSTurnMetadata(payload, turnMetadata)
 	applyStagedCodexFingerprintClientMetadata(c, account, payload)
+	if GetOpenAIClientTransport(c) == OpenAIClientTransportHTTP && s.openAIWSRouteExceedsThreshold(mappedModel, len(payloadAsJSONBytes(payload))) {
+		return nil, wrapOpenAIWSFallback("http_gpt_payload_threshold", errors.New("GPT response.create reached the HTTP route threshold before submission"))
+	}
 	previousResponseID := openAIWSPayloadString(payload, "previous_response_id")
 	previousResponseIDKind := ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
 	promptCacheKey := strings.TrimSpace(clientPromptCacheKey)
@@ -342,6 +345,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		return nil, err
 	}
 
+	if GetOpenAIClientTransport(c) == OpenAIClientTransportHTTP {
+		c.Set(openAIHTTPWSWriteAttemptedKey, true)
+	}
 	if err := lease.WriteJSONWithContextTimeout(ctx, payload, s.openAIWSWriteTimeout()); err != nil {
 		lease.MarkBroken()
 		logOpenAIWSModeInfo(

@@ -25,14 +25,14 @@ BASE_COMMIT = 'b3a100e05054b265a2e0a8a71827c659553503e9'
 BASE_ID = 'sha256:84f6a16649c84907f523d55821d07c5903422565e6cbfe97c0c2ceac41b21ad6'
 BASE_CONFIG_ID = 'sha256:24f939378b80e8a1f24bfa0d01a1a87d896441417f2c10f35966640708d10e21'
 BASE_BINARY_SHA256 = '3493620575780e86f888ae5dad02da04f2fa8424ae8a1ca835eb0dac906a1943'
-GO = os.environ.get('SUB2API_GO', '/private/tmp/go1.27.0/bin/go')
+GO = os.environ.get('SUB2API_GO', str(REPO / 'tools/go.sh'))
 NODE = os.environ.get('SUB2API_NODE_BIN', '/Users/thinkerlu/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin')
 DOCKER = ['docker', '--context', 'colima-sub2api-build']
 ENV = {**os.environ, 'PATH': NODE + ':/opt/homebrew/bin:' + os.environ.get('PATH', '')}
 GO_ENV = {**ENV, 'CGO_ENABLED': '0', 'GOOS': 'linux', 'GOARCH': 'amd64',
-          'GOTOOLCHAIN': 'local', 'GOCACHE': '/private/tmp/sub2api-v029-go-cache'}
+          'GOTOOLCHAIN': 'local', 'GOCACHE': str(Path.home() / 'Library/Caches/sub2api-go-build')}
 TEST_ENV = {key: value for key, value in ENV.items() if key not in ('GOOS', 'GOARCH', 'CGO_ENABLED')}
-TEST_ENV.update(GOTOOLCHAIN='local', GOCACHE='/private/tmp/sub2api-v029-go-cache')
+TEST_ENV.update(GOTOOLCHAIN='local', GOCACHE=str(Path.home() / 'Library/Caches/sub2api-go-build'))
 
 
 def run(args, cwd, log=None, env=ENV):

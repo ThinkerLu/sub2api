@@ -37,7 +37,7 @@ func (s *OpenAIGatewayService) OpenAIWSModelSwitchAllowed(c *gin.Context, groupI
 		return false
 	}
 	// Only the client family verified by the real reconnect probes may retry.
-	return version == "0.155.0-alpha.16.4" || version == "0.155.0"
+	return version == "0.155.0-alpha.16.4" || version == "0.155.0" || version == "0.158.0-alpha.2.1"
 }
 
 func (s *OpenAIGatewayService) PrepareOpenAIWSModelMigration(ctx context.Context, c *gin.Context, account *Account, body []byte, requestedModel string, userID, apiKeyID int64, groupID *int64, completedResponse ...string) error {

@@ -15,11 +15,11 @@ func TestWSMigrationDefaultClientCompatibilityWithoutFeatureFlags(t *testing.T) 
 	s, _, _, _ := adaptiveFixture()
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest("GET", "/responses", nil)
-	for _, ua := range []string{"codex_cli_rs/0.155.0", "codex_cli_rs/0.155.0-alpha.16.4"} {
+	for _, ua := range []string{"codex_cli_rs/0.155.0", "codex_cli_rs/0.155.0-alpha.16.4", "codex_cli_rs/0.158.0-alpha.2.1"} {
 		c.Request.Header.Set("User-Agent", ua)
 		require.True(t, s.OpenAIWSModelSwitchAllowed(c, 1234))
 	}
-	for _, ua := range []string{"", "unknown/0.155.0", "codex_cli_rs/0.1.0", "other codex_cli_rs/0.155.0"} {
+	for _, ua := range []string{"", "unknown/0.155.0", "codex_cli_rs/0.1.0", "other codex_cli_rs/0.155.0", "codex_cli_rs/0.158.0", "codex_cli_rs/0.158.0-alpha.2.2"} {
 		c.Request.Header.Set("User-Agent", ua)
 		require.False(t, s.OpenAIWSModelSwitchAllowed(c, 1234))
 	}
