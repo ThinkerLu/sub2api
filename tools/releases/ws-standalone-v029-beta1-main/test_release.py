@@ -70,7 +70,7 @@ class DualLegReleaseTests(unittest.TestCase):
         with patch.object(release, 'check_preflight', side_effect=RuntimeError('stop')) as preflight:
             with self.assertRaises(RuntimeError):
                 release.deploy({}, skip_database_backup=True)
-            preflight.assert_called_once_with({}, skip_database_backup=True)
+            preflight.assert_called_once_with({}, skip_database_backup=True, skip_image_backup=False)
 
     def test_complete_beta_package_passes_real_verification(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -218,6 +218,50 @@ class DualLegReleaseTests(unittest.TestCase):
             self.assertEqual(mocked.call_args_list[0].args[0][0], 'bash')
             self.assertIn('gzip -1', mocked.call_args_list[0].args[0][4])
             self.assertEqual(mocked.call_args_list[1].args[0][:2], ['gzip', '-t'])
+
+    def test_skip_image_backup_records_local_tag_retention(self):
+        with tempfile.TemporaryDirectory() as directory:
+            backup = Path(directory)
+            with patch.object(release, 'run') as run:
+                self.assertIsNone(release.save_base_image(backup, skip_image_backup=True))
+            run.assert_not_called()
+
+    def test_restore_uses_local_old_image_without_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            backup = Path(directory)
+            (backup / 'backup.json').write_text(json.dumps({
+                'new_commit': 'a' * 40,
+                'old_commit': release.BASE_COMMIT,
+                'old_image_backup': 'local-tag-retained',
+                'old_image_sha256': None,
+                'old_image_id': release.BASE_ID,
+            }))
+            (backup / 'migrations.before.txt').write_text('migrations')
+            (backup / '.env').write_text('CONFIG=hidden\n')
+            (backup / 'docker-compose.yml').write_text('services: {}\n')
+            with patch.object(release, 'image_id', return_value=release.BASE_ID), \
+                 patch.object(release, 'migrations', return_value='migrations'), \
+                 patch.object(release, 'compatible_migrations'), \
+                 patch.object(release, 'drain_recovery_window'), \
+                 patch.object(release, 'atomic'), \
+                 patch.object(release, 'compose'), \
+                 patch.object(release, 'healthy'), \
+                 patch.object(release, 'run') as run:
+                release.restore(backup, {'commit': 'a' * 40})
+            run.assert_not_called()
+
+    def test_ensure_new_image_reuses_verified_local_image(self):
+        manifest = {
+            'image': 'sub2api:test',
+            'image_id': release.BASE_ID,
+            'image_config_digest': release.BASE_CONFIG_ID,
+            'commit': release.BASE_COMMIT,
+            'archive': 'image.tar.gz',
+        }
+        info = json.dumps([{'Id': release.BASE_ID, 'Os': 'linux', 'Architecture': 'amd64'}])
+        with patch.object(release, 'docker', side_effect=[info, release.BASE_COMMIT]) as docker:
+            release.ensure_new_image(manifest)
+        self.assertEqual([call.args[:2] for call in docker.call_args_list], [('image', 'inspect'), ('run', '--rm')])
 
     def test_requires_identical_migrations(self):
         before = ('241_usage_log_traffic_bytes.sql|' + 'a' * 64 + '\n' +

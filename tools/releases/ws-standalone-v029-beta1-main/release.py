@@ -74,13 +74,32 @@ def cleanup_incomplete_backups():
     return removed
 
 
-def save_base_image(backup):
+def save_base_image(backup, *, skip_image_backup=False):
+    if skip_image_backup:
+        return None
     archive = backup / IMAGE_BACKUP
     run(['bash', '-o', 'pipefail', '-c', 'docker save "$1" | gzip -1 > "$2"',
          'bash', BASE_IMAGE, str(archive)])
     assert archive.is_file() and archive.stat().st_size > 0, '旧镜像备份为空'
     run(['gzip', '-t', str(archive)])
     return archive
+
+
+def ensure_new_image(manifest):
+    try:
+        info = json.loads(docker('image', 'inspect', manifest['image']))[0]
+    except RuntimeError:
+        info = None
+    if info is not None:
+        assert (info['Os'], info['Architecture']) == ('linux', 'amd64'), '已加载的新镜像架构不符'
+        assert info['Id'] in (manifest['image_id'], manifest['image_config_digest']), '已加载的新镜像摘要不匹配'
+        assert manifest['commit'] in docker('run', '--rm', '--pull', 'never', '--network', 'none',
+                                            '--entrypoint', '/app/sub2api', manifest['image'], '--version')
+        return
+    docker('load', '-i', str(HERE / manifest['archive']))
+    assert image_id(manifest['image']) in (manifest['image_id'], manifest['image_config_digest']), '新镜像摘要不匹配'
+    assert manifest['commit'] in docker('run', '--rm', '--pull', 'never', '--network', 'none',
+                                        '--entrypoint', '/app/sub2api', manifest['image'], '--version')
 
 
 def verify_package(manifest):
@@ -211,7 +230,7 @@ def atomic(path, text):
     temp.replace(path)
 
 
-def check_preflight(manifest, *, skip_database_backup=False):
+def check_preflight(manifest, *, skip_database_backup=False, skip_image_backup=False):
     verify_package(manifest)
     assert DEPLOY.is_dir() and (DEPLOY / '.env').is_file(), 'Compose 目录不完整'
     compose('config', '--quiet')
@@ -227,6 +246,8 @@ def check_preflight(manifest, *, skip_database_backup=False):
     assert compose('exec', '-T', 'redis', 'redis-cli', 'PING').strip() == 'PONG', 'Redis 不可用'
     if skip_database_backup:
         print('警告：显式跳过数据库备份；本次发布无法提供数据库灾难恢复。配置和旧镜像仍备份。', flush=True)
+    if skip_image_backup:
+        print('警告：显式跳过旧镜像归档；回滚依赖本机继续保留的 beta3 镜像 tag 和摘要。', flush=True)
     free = shutil.disk_usage(DEPLOY).free
     print(f'磁盘可用空间：{free} 字节；不设置空间准入门槛。实际写入、备份或镜像导入失败仍会中止，磁盘耗尽可能影响运行服务。', flush=True)
     return baseline
@@ -235,10 +256,14 @@ def check_preflight(manifest, *, skip_database_backup=False):
 def restore(backup, manifest):
     meta = json.loads((backup / 'backup.json').read_text())
     assert meta['new_commit'] == manifest['commit'] and meta['old_commit'] == BASE_COMMIT
-    archive = backup / meta.get('old_image_backup', IMAGE_BACKUP)
-    assert archive.parent == backup and archive.name == IMAGE_BACKUP, '旧镜像备份路径不合法'
-    assert digest(archive) == meta['old_image_sha256'], '旧镜像备份损坏'
-    run(['bash', '-o', 'pipefail', '-c', 'gzip -dc "$1" | docker load', 'bash', str(archive)])
+    image_backup = meta.get('old_image_backup', IMAGE_BACKUP)
+    if image_backup == 'local-tag-retained':
+        assert meta.get('old_image_id') == BASE_ID, '本机保留的旧镜像摘要记录不匹配'
+    else:
+        archive = backup / image_backup
+        assert archive.parent == backup and archive.name == IMAGE_BACKUP, '旧镜像备份路径不合法'
+        assert digest(archive) == meta['old_image_sha256'], '旧镜像备份损坏'
+        run(['bash', '-o', 'pipefail', '-c', 'gzip -dc "$1" | docker load', 'bash', str(archive)])
     assert image_id(BASE_IMAGE) in BASE_IDS, '回滚镜像摘要不匹配'
     compatible_migrations((backup / 'migrations.before.txt').read_text(), migrations(), manifest)
     drain_recovery_window()
@@ -259,15 +284,12 @@ def backup_database(backup, *, skip_database_backup=False):
     return {'database_backup': 'completed', 'database_sha256': digest(backup / 'database.dump')}
 
 
-def deploy(manifest, *, skip_database_backup=False):
-    baseline = check_preflight(manifest, skip_database_backup=skip_database_backup)
+def deploy(manifest, *, skip_database_backup=False, skip_image_backup=False):
+    baseline = check_preflight(manifest, skip_database_backup=skip_database_backup,
+                               skip_image_backup=skip_image_backup)
     for name in cleanup_incomplete_backups():
         print('已清理未完成的旧备份：' + name, flush=True)
-    archive = HERE / manifest['archive']
-    docker('load', '-i', str(archive))
-    assert image_id(manifest['image']) in (manifest['image_id'], manifest['image_config_digest']), '新镜像摘要不匹配'
-    assert manifest['commit'] in docker('run', '--rm', '--pull', 'never', '--network', 'none',
-                                        '--entrypoint', '/app/sub2api', manifest['image'], '--version')
+    ensure_new_image(manifest)
     assert not POINTER.exists(), '已有该发布的回滚记录，拒绝覆盖'
     stamp = time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:6]
     backup = backup_root() / (BACKUP_PREFIX + stamp)
@@ -277,10 +299,11 @@ def deploy(manifest, *, skip_database_backup=False):
         (backup / name).chmod(0o600)
     (backup / 'migrations.before.txt').write_text(baseline)
     database_meta = backup_database(backup, skip_database_backup=skip_database_backup)
-    image_backup = save_base_image(backup)
+    image_backup = save_base_image(backup, skip_image_backup=skip_image_backup)
     meta = {'old_commit': BASE_COMMIT, 'new_commit': manifest['commit'],
-            'old_image_backup': image_backup.name,
-            'old_image_sha256': digest(image_backup), **database_meta}
+            'old_image_backup': image_backup.name if image_backup else 'local-tag-retained',
+            'old_image_sha256': digest(image_backup) if image_backup else None,
+            'old_image_id': image_id(BASE_IMAGE), **database_meta}
     (backup / 'backup.json').write_text(json.dumps(meta, indent=2) + '\n')
     atomic(POINTER, str(backup) + '\n')
     try:
@@ -323,6 +346,8 @@ def main():
     parser.add_argument('action', choices=['preflight', 'deploy', 'rollback'])
     parser.add_argument('--skip-database-backup', action='store_true',
                         help='显式跳过数据库备份，仍备份配置和旧镜像；不提供数据库灾难恢复')
+    parser.add_argument('--skip-image-backup', action='store_true',
+                        help='显式跳过旧镜像归档；回滚依赖本机继续保留的 beta3 镜像 tag 和摘要')
     args = parser.parse_args()
     if args.action == 'rollback' and args.skip_database_backup:
         parser.error('回滚不接受 --skip-database-backup；回滚始终保留业务数据库')
@@ -335,10 +360,12 @@ def main():
         fcntl.flock(baseline_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if args.action == 'preflight':
-            check_preflight(manifest, skip_database_backup=args.skip_database_backup)
+            check_preflight(manifest, skip_database_backup=args.skip_database_backup,
+                            skip_image_backup=args.skip_image_backup)
             print('主服务器预检通过，未切换服务。')
         elif args.action == 'deploy':
-            deploy(manifest, skip_database_backup=args.skip_database_backup)
+            deploy(manifest, skip_database_backup=args.skip_database_backup,
+                   skip_image_backup=args.skip_image_backup)
         else:
             rollback(manifest)
 

@@ -1,6 +1,6 @@
 # v0.2.9 发布工具压缩旧镜像备份
 
-目标版本：`v0.2.9-beta1-ws-standalone-named-output`，交付工具修订 `r1`。应用镜像和源码提交保持 beta1 不变。
+目标版本：`v0.2.9-beta1-ws-standalone-named-output`，交付工具修订 `r2`。应用镜像和源码提交保持 beta1 不变。
 
 ## 目的
 
@@ -13,6 +13,8 @@ beta1 首次部署在主服务器备份旧镜像时失败：脚本用 `docker sa
 - 回滚使用 `gzip -dc old-image.tar.gz | docker load` 恢复旧镜像。
 - 部署前扫描同一发布前缀的备份目录；没有 `backup.json` 且未被当前发布指针引用的目录视为未完成目录并清理。
 - 部署失败且尚未写发布指针时，也会清理本次未完成目录。已写指针或已有完整 `backup.json` 的备份不会被自动删除。
+- `r2` 增加显式 `--skip-image-backup`。仅在主机空间不足且 beta3 镜像仍在本机、tag 与 ID 均匹配时使用；`backup.json` 记录 `old_image_backup=local-tag-retained`，即时回滚改用本机保留镜像。
+- 新镜像已按 manifest 摘要存在时，部署不再重复执行 `docker load`。
 - 应用镜像、数据库、Compose 切换、恢复窗口排空和健康检查逻辑不变。
 
 ## 配置和数据
@@ -29,4 +31,4 @@ python3 -m unittest -v test_release.py
 
 ## 发布与回滚
 
-`r1` 作为 beta1 的交付工具修订重新组包，manifest 记录 `delivery_revision=r1`。先上传小体积修订包并校验 SHA256，再在主服务器执行预检和部署。回滚恢复 beta1 的上一 beta3 应用镜像；无数据库迁移。
+`r2` 作为 beta1 的交付工具修订重新组包，manifest 记录 `delivery_revision=r2`。先上传小体积修订包并校验 SHA256，再在主服务器执行预检和部署。低磁盘主机可在确认本机 beta3 镜像完整后使用 `--skip-image-backup`。回滚恢复 beta1 的上一 beta3 应用镜像；无数据库迁移。

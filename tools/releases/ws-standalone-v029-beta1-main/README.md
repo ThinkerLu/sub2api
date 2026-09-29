@@ -1,4 +1,4 @@
-# v0.2.9-beta1 主服务器发布包（交付工具 r1）
+# v0.2.9-beta1 主服务器发布包（交付工具 r2）
 
 完整版本为 `v0.2.9-beta1-ws-standalone-named-output`。唯一目标：`ac.thinkerlu.top`（主机名 `vm75142.akkocloud.com`），域名 `subapi.thinkerlu.top`，Compose 目录 `/home/thinkerlu/sub2api-deploy`。仅使用单文件 `docker-compose.yml`，不得套用备用机覆盖文件或 18080 健康端口。
 
@@ -26,6 +26,15 @@ sudo ./deploy.sh
 ```
 
 默认在切换前备份 `.env`、`docker-compose.yml`、旧镜像、数据库 `pg_dump -Fc` 和迁移摘要。旧镜像通过 `docker save | gzip -1` 直接写成压缩归档，不生成同等大小的未压缩 tar；部署前还会清理未被发布指针引用的未完成备份目录。经操作人明确接受风险时，可同时给预检和部署传入 `--skip-database-backup`；配置和旧镜像仍会备份，但发布包不再提供数据库灾难恢复。部署会停止应用并排空 WS 恢复窗口，最多等待 130 秒，期间请求会中断。
+
+如果主机磁盘不足以让 Docker 写出旧镜像归档，并已确认 beta3 镜像仍在本机且 tag、镜像 ID 与 manifest 一致，可在预检和部署时增加 `--skip-image-backup`：
+
+```sh
+sudo python3 release.py preflight --skip-image-backup
+sudo ./deploy.sh --skip-image-backup
+```
+
+此时 `backup.json` 记录 `old_image_backup=local-tag-retained` 和旧镜像 ID，不回滚由 Docker 存储损坏导致的镜像丢失。新镜像如果已经按 manifest 摘要加载，脚本会复用它，不重复 `docker load`。该参数只影响镜像归档，数据库默认仍备份。
 
 本版本不新增或改写数据库迁移，部署后要求迁移记录与部署前完全一致。健康验证使用容器内 8080 和主服务器域名。部署后还需重新连接客户端并验证真实请求；健康接口通过不等于上游业务验收。
 
