@@ -51,13 +51,28 @@ func (s *OpenAIGatewayService) canFallbackHTTPAfterWSHandshake(ctx context.Conte
 	return !coverage.HasFunctionCallOutput || coverage.ContextCoversAllCallIDs
 }
 
-func writeOpenAIHTTPFallbackExecutionUnknown(c *gin.Context) error {
+func isOpenAIHTTPWSExecutionUnknown(err error) bool {
+	var fallback *openAIWSFallbackError
+	if !errors.As(err, &fallback) || fallback == nil {
+		return false
+	}
+	switch fallback.Reason {
+	case "write_request", "write", "read_event", "missing_final_response", "invalid_event_json":
+		return true
+	default:
+		return false
+	}
+}
+
+func writeOpenAIHTTPExecutionUnknown(c *gin.Context) error {
 	if c != nil && !c.Writer.Written() {
-		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{
+		// A 5xx would invite an HTTP SDK to resubmit a possibly executed request.
+		c.Header("Content-Type", "application/json")
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
 			"type": "upstream_error", "code": "upstream_execution_unknown",
-			"message": "HTTP fallback failed after submission; automatic replay is disabled",
+			"message": "Upstream execution state is unknown; automatic replay is disabled",
 		}})
 	}
 	// Deliberately do not unwrap a failover error: the handler must not resubmit.
-	return errors.New("HTTP fallback execution unknown; automatic replay is disabled")
+	return errors.New("upstream execution unknown; automatic replay is disabled")
 }

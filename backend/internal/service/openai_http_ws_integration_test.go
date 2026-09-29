@@ -111,6 +111,8 @@ func TestHTTPIngressIndependentWebSocketUpstream(t *testing.T) {
 							result := <-results
 							if closeAfterWrite {
 								require.Error(t, forwardErr)
+							require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+							require.Contains(t, resp.Header.Get("Content-Type"), "application/json")
 								require.EqualValues(t, 1, writes.Load(), "unknown execution must not be replayed")
 								require.Nil(t, httpUpstream.lastReq, "unknown execution must not fall back to HTTP")
 								return
@@ -287,7 +289,8 @@ func TestHTTPIngressWriteFailureDoesNotReplay(t *testing.T) {
 	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
 	_, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5.1","stream":true,"input":"synthetic"}`))
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "write_request")
+	require.Contains(t, err.Error(), "execution unknown")
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.EqualValues(t, 1, conn.attempts.Load())
 	require.Nil(t, upstream.lastReq)
 }
