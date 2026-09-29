@@ -2556,23 +2556,25 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	if imageIntent && requestPlatform == service.PlatformOpenAI {
 		requiredCapability = service.OpenAIEndpointCapabilityResponses
 	}
-	wsModelAvailable, wsModelRouteErr := h.gatewayService.OpenAIWSModelRouteAvailable(
-		ctx,
-		apiKey.GroupID,
-		wsForwardModel,
-		requiredCapability,
-		requestPlatform,
-	)
-	if wsModelRouteErr != nil {
-		reqLog.Warn("openai.websocket_model_route_lookup_failed", zap.Error(wsModelRouteErr))
-		closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "failed to resolve websocket transport")
-		return
-	}
-	if !wsModelAvailable {
-		service.MarkOpenAIWSHTTPFallback(fallbackSessionKey)
-		reqLog.Info("openai.websocket_model_http_fallback", zap.String("session_initial_model", wsForwardModel))
-		closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "model has no websocket-capable account; retry over HTTP")
-		return
+	if requiredTransport == service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress {
+		wsModelAvailable, wsModelRouteErr := h.gatewayService.OpenAIWSModelRouteAvailable(
+			ctx,
+			apiKey.GroupID,
+			wsForwardModel,
+			requiredCapability,
+			requestPlatform,
+		)
+		if wsModelRouteErr != nil {
+			reqLog.Warn("openai.websocket_model_route_lookup_failed", zap.Error(wsModelRouteErr))
+			closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "failed to resolve websocket transport")
+			return
+		}
+		if !wsModelAvailable {
+			service.MarkOpenAIWSHTTPFallback(fallbackSessionKey)
+			reqLog.Info("openai.websocket_model_http_fallback", zap.String("session_initial_model", wsForwardModel))
+			closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "model has no websocket-capable account; retry over HTTP")
+			return
+		}
 	}
 
 	var currentUserRelease func()
