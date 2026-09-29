@@ -16,6 +16,7 @@ beta3 修复：[Adaptive 上游 WS 轮间保活](2026-09-26-adaptive-ws-upstream
 | 切模型全量恢复 | [切模型重连](2026-09-26-ws-model-switch-full-retry.md) | v0.2.8-beta1-dual-leg-thinking-ws |
 | 显式协议档案与生命周期 | [账号 WS 档案](2026-09-26-responses-ws-profiles.md) | v0.2.8-beta1-dual-leg-thinking-ws |
 | 使用记录双向传输 | [入站传输](2026-09-26-usage-ingress-transport.md) | v0.2.8-beta1-dual-leg-thinking-ws |
-| WS 覆盖率判定识别具名独立输入 | [具名独立输入](2026-09-29-ws-standalone-named-output.md) | 待下次合并发布 |
+| WS 覆盖率判定识别具名独立输入 | [具名独立输入](2026-09-29-ws-standalone-named-output.md) | v0.2.9-beta1-ws-standalone-named-output |
+| 主服务器 v0.2.9 beta1 发布与回滚 | [主服务器交付](2026-09-29-main-v029-beta1-delivery.md) | v0.2.9-beta1-ws-standalone-named-output |
 
 v0.2.8-beta1 的打包与目标机操作见源码仓库 `tools/releases/dual-leg-thinking-ws-v028-beta1/README.md`。上传不代表已经部署；实际构建提交、验证结果及镜像摘要以发布包 manifest 为准。

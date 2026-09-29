@@ -1,6 +1,6 @@
 # WS 覆盖率判定识别具名独立输入
 
-目标版本：待下次合并发布，本次不升版本。基线为发布分支 `codex/release-sub2api` 的 `68368526a`。
+目标版本：`v0.2.9-beta1-ws-standalone-named-output`。官方源码基线为 `v0.2.9`（`4c00df2e0183e2c70b7fa8ba45914205e36aad0c`，tree `212ecc21a885afd84eb9ff70df2bf5d543b864eb`）；开发基线为发布分支 `codex/release-sub2api` 的 `68368526a`。
 
 ## 目的
 
@@ -40,7 +40,7 @@ go test -tags=unit ./internal/service ./internal/service/openai_ws_v2 ./internal
 
 ## 发布与回滚
 
-本改动合入发布分支，不单独构建发布包。回滚按发布分支既有方式恢复上一镜像，不涉及数据迁移。
+本改动已合入发布分支。主服务器首包与部署、回滚说明见 `tools/releases/ws-standalone-v029-beta1-main/README.md`；回滚恢复上一应用镜像，不涉及数据迁移。
 
 ## 来源
 
