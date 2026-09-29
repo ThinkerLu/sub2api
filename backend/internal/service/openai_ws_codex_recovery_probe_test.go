@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,6 +23,46 @@ import (
 // local responses, has no real credentials, and is never asked to execute tools.
 func TestCodexWSRecoveryProbe(t *testing.T) {
 	runCodexWSRecoveryProbe(t, true)
+}
+
+func TestCodexHTTPUnknownExecutionDoesNotRetry(t *testing.T) {
+	binary := os.Getenv("SUB2API_CODEX_PROBE_BIN")
+	if binary == "" {
+		t.Skip("set SUB2API_CODEX_PROBE_BIN to the verified Codex CLI")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		requests.Add(1)
+		c, _ := gin.CreateTestContext(w)
+		_ = writeOpenAIHTTPExecutionUnknown(c)
+	}))
+	defer server.Close()
+	tmp := t.TempDir()
+	args := []string{"exec", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", "--ephemeral", "--json", "-s", "read-only", "-C", tmp, "-m", "gpt-5.1",
+		"-c", `model_provider="probe"`, "-c", `model_providers.probe.name="Local HTTP verification"`,
+		"-c", fmt.Sprintf("model_providers.probe.base_url=%q", server.URL+"/v1"),
+		"-c", `model_providers.probe.wire_api="responses"`, "-c", `model_providers.probe.env_key="SUB2API_SYNTHETIC_KEY"`,
+		"-c", `model_providers.probe.supports_websockets=false`, "-c", fmt.Sprintf("chatgpt_base_url=%q", server.URL+"/backend-api"),
+		"-c", "features.plugins=false", "--disable", "responses_websockets_v2", "Return PROBE_OK. Do not call tools."}
+	command := exec.CommandContext(ctx, binary, args...)
+	for _, value := range os.Environ() {
+		if !strings.HasPrefix(value, "CODEX_HOME=") && !strings.HasPrefix(value, "OPENAI_API_KEY=") {
+			command.Env = append(command.Env, value)
+		}
+	}
+	command.Env = append(command.Env, "CODEX_HOME="+tmp, "SUB2API_SYNTHETIC_KEY=synthetic-not-a-secret",
+		"HTTP_PROXY=http://127.0.0.1:1", "HTTPS_PROXY=http://127.0.0.1:1", "http_proxy=http://127.0.0.1:1", "https_proxy=http://127.0.0.1:1", "NO_PROXY=127.0.0.1,localhost", "no_proxy=127.0.0.1,localhost")
+	_, err := command.CombinedOutput()
+	require.Error(t, err)
+	require.NoError(t, ctx.Err(), "CLI must stop instead of retrying until the timeout")
+	require.EqualValues(t, 1, requests.Load())
+	t.Logf("HTTP generation requests=%d; unknown execution stopped without retry", requests.Load())
 }
 
 func TestCodexWSUnknownExecutionDoesNotRetry(t *testing.T) {

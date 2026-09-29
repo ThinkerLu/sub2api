@@ -23,7 +23,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	defer func() {
 		var failover *UpstreamFailoverError
 		if httpFallbackSubmitted && errors.As(forwardErr, &failover) {
-			forwardErr = writeOpenAIHTTPFallbackExecutionUnknown(c)
+			forwardErr = writeOpenAIHTTPExecutionUnknown(c)
 		}
 	}()
 	ingressBodyBytes := len(body)
@@ -1118,6 +1118,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			return wsResult, nil
 		}
 		if wsDecision.Transport != OpenAIUpstreamTransportHTTPSSE {
+			if GetOpenAIClientTransport(c) == OpenAIClientTransportHTTP && c.GetBool(openAIHTTPWSWriteAttemptedKey) && isOpenAIHTTPWSExecutionUnknown(wsErr) {
+				return wsResult, writeOpenAIHTTPExecutionUnknown(c)
+			}
 			s.writeOpenAIWSFallbackErrorResponse(c, account, wsErr)
 			return wsResult, wsErr
 		}
@@ -1141,7 +1144,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	rejectedFieldRetryState := openAIResponsesRejectedFieldRetryStateForRequest(c, body)
 	for {
 		if httpFallbackSubmitted {
-			return nil, writeOpenAIHTTPFallbackExecutionUnknown(c)
+			return nil, writeOpenAIHTTPExecutionUnknown(c)
 		}
 		// Build upstream request
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)

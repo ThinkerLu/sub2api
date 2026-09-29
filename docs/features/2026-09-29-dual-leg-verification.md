@@ -55,5 +55,14 @@
 - `fallback-full.log`：首次补充回归中，不调用本次转发代码的内容审计缓存刷新测试出现一次计数断言不稳定。保留失败记录，未修改该测试。`moderation-refresh-repeat.log` 单独连续 30 次通过；`fallback-full-final.log` 使用 `test -p 1 -tags=unit ./... -count=1` 全部通过，服务包运行 208.195 秒。合并后的复测另记 `merged-unit.log`。
 - `fallback-no-replay.log`：网络错误与可触发字段修正重试的 HTTP 400 两种情况均只发一次 HTTP 请求，返回不可换号重放的错误，race 重复三次通过。
 - 原有前端、PostgreSQL 和 CLI 验收仍适用，本轮未改变前端或 schema；Linux 二进制按补充后的源码重新构建并在无网络临时容器中启动，日志 `fallback-linux-build.log` / `fallback-linux-smoke.log`。临时容器已移除。
+- `terminal-http-error.log`：执行未知返回 HTTP 400，真实 Codex HTTP 客户端只发送一次生成请求；JSON/SSE 请求的实际转发测试均检查状态码。`terminal-http-race.log` 对 HTTP 路径、迁移和双链路重复三次竞态通过。最终补强后的合并复测另记 `merged-final-unit.log`。
+
+## 提交记录
+
+- `ef00429df`：持久 Go 安装、版本入口与当前打包脚本默认工具链。
+- `ec411b0c4`：四种传输组合、HTTP 握手安全降级、下一请求提升和全量重连验收。
+- `690f49432`：上述两个提交合入 codex/release-sub2api；`merged-unit.log` 的全后端 unit 标签复测通过。
+- 执行未知 HTTP 400 与真实 HTTP 客户端探针随后以独立修复提交合入；具体 SHA 可通过本文件及 openai_http_ws_fallback.go 的提交历史核对。
+- 发布工作树原有四个模型注册表相关文件未提交差异在合并前后 SHA256 均为 `e16504e85dabfa1a37540ad03df81d7a2b1c5673d5b894e5612e23cb21828120`，未覆盖、未夹带提交。
 
 不等同于生产服务验收；真实上游模型、长历史压缩、所有工具组合和线上五分钟空闲仍需在明确目标并部署后验证。原方案要求的内存预算与新增环境开关按用户后续要求不恢复。跨账号使用受控客户端全量重连，代理完整历史免重连跨账号执行优化未新增，可见思考转普通文本可选项未启用。参见功能文档的范围与限制。

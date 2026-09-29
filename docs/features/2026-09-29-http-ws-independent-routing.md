@@ -38,7 +38,7 @@ HTTP→WS 是协议转换，不是把客户端 HTTP 连接当作 WebSocket。非
 
 允许网络拨号错误及握手 HTTP 404/405/426/500/501/502/503/504；认证 401/403、限流 429、错误体明确的限额错误（即使外层 503）、连接池排队/容量失败、配置错误、generate=false 预热不走此降级。显式 ctx_pool/passthrough 模式保持原来的错误处理，不扩大 adaptive 回退范围。
 
-每次请求重新解析 WS 能力，不写入永久 HTTP 模式。握手恢复后，下次合格 HTTP 请求重新尝试 HTTP-WS；原有账号健康冷却仍有效，不借换协议绕过健康、认证或配额政策。HTTP 回退一旦开始提交，内部字段修正重试、执行不明错误引起的 handler 换账号均被阻止；错误返回 upstream_execution_unknown，观测到的部分用量结果仍保留。
+每次请求重新解析 WS 能力，不写入永久 HTTP 模式。握手恢复后，下次合格 HTTP 请求重新尝试 HTTP-WS；原有账号健康冷却仍有效，不借换协议绕过健康、认证或配额政策。HTTP 回退一旦开始提交，内部字段修正重试、执行不明错误引起的 handler 换账号均被阻止；错误返回 upstream_execution_unknown，观测到的部分用量结果仍保留。尚未写出下游响应时，执行未知返回 HTTP 400 和 application/json，避免 HTTP SDK 将 502 当作可重试故障；HTTP→WS 写入/读取失败同样适用。真实 Codex HTTP 探针验证只发送一次请求。
 
 WS 入站也验证了同一客户端连接的 WS 握手失败 → WS-HTTP → 后续 WS-WS；回到 WS 时使用已恢复的完整历史，不把 HTTP response ID 直接发往新 WS。跨账号受控全量重连测试验证上一连接为 WS-HTTP 时，新连接可按新目标能力选择 WS-WS，且重复认领不产生第二次账单。
 
@@ -65,6 +65,7 @@ WS 入站也验证了同一客户端连接的 WS 握手失败 → WS-HTTP → �
 | 同账号换协议重建历史、原历史不污染 | TestDualLegSameAccountProtocolSwitchRebuildsPortableHistory 及目标 thinking 测试 |
 | 归属绑定、单次认领、缺工具/托管状态拒绝 | TestWSRecoveryOwnerRequiresExactUserKeyAndGroup、TestWSMigrationIntentSingleClaimAndFailClosed、TestWSMigrationHistoryRejectsMissingToolsAndHostedState |
 | 客户端 full retry 与未知执行不重试 | TestCodexWSRecoveryProbe、TestCodexWSUnknownExecutionDoesNotRetry、TestCodexWSPrecommitCloseRetriesFullContext（显式指定本机 CLI，合成上游） |
+| HTTP 客户端执行未知不自动重试 | TestCodexHTTPUnknownExecutionDoesNotRetry（真实 CLI，隔离配置和合成凭据） |
 | 原 WS passthrough 轮间保活和终态先于 EOF | TestAdaptiveRetainedUpstreamAnswersIdlePing、TestAdaptiveRetainedReaderDeliversTerminalBeforePeerEOF |
 | 非 OpenAI 显式协议档案及无档案 HTTP | openai_ws_protocol_profile_test.go |
 | 入站列迁移、双维度数据库读写、旧行兼容 | TestUsageIngressTransportPostgresRoundTrip（隔离 PostgreSQL 容器） |

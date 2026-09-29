@@ -94,6 +94,7 @@ func TestHTTPWSFallbackHTTPFailureCannotReplayOrFailover(t *testing.T) {
 			_, err := s.Forward(context.Background(), c, a, []byte(`{"model":"gpt-5.1","stream":false,"input":"full context","truncation":"auto"}`))
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "automatic replay is disabled")
+			require.Equal(t, http.StatusBadRequest, c.Writer.Status())
 			var failover *UpstreamFailoverError
 			require.False(t, errors.As(err, &failover), "handler must not resubmit to another account")
 			require.Equal(t, 1, httpUp.callCount)
