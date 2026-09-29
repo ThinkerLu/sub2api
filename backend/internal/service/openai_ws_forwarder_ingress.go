@@ -654,6 +654,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 		bridgeAccountFailoverInputExists := false
 		for turn := 1; ; turn++ {
 			dualLeg := adaptive
+			adaptiveContextPolicy := CurrentOpenAIWSContextPolicy()
 			turnCtx := ctx
 			var commit *openAIWSTurnCommit
 			if dualLeg {
@@ -939,26 +940,45 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 				return errors.New("websocket http bridge turn result is nil")
 			}
 			commit.advance(openAIWSTurnTerminal)
-			// turnReplayInput/turnAccountFailoverInput 可能共享同一头数组（转移自
-			// bridgeCurrentItems），保存历史必须经 combine 新建头，禁止就地 append。
-			bridgeReplayInput = turnReplayInput
-			bridgeReplayInputExists = turnReplayInputExists
-			if result.wsReplayInputExists {
-				bridgeReplayInput = combineOpenAIWSReplayItems(bridgeReplayInput, result.wsReplayInput)
-				bridgeReplayInputExists = true
+			retainAdaptiveHistory := adaptiveContextPolicy.ShouldRetainAdaptiveHistory(account.Name, result.OpenAIWSHTTPBridge)
+			if adaptiveContextPolicy.AppliesTo(account.Name) {
+				transport := "ws"
+				if result.OpenAIWSHTTPBridge {
+					transport = "http"
+				}
+				logOpenAIWSModeInfo("ingress_ws_context_policy account_id=%d turn=%d transport=%s retain=%v", account.ID, turn, transport, retainAdaptiveHistory)
 			}
-			bridgeAccountFailoverInput = turnAccountFailoverInput
-			bridgeAccountFailoverInputExists = turnAccountFailoverInputExists
-			if len(result.wsAccountFailoverReplayInput) > 0 {
-				bridgeAccountFailoverInput = combineOpenAIWSReplayItems(
-					bridgeAccountFailoverInput,
-					result.wsAccountFailoverReplayInput,
-				)
-				bridgeAccountFailoverInputExists = true
-			}
-			if adaptive {
-				bridgeReplayInput = bridgeAccountFailoverInput
-				bridgeReplayInputExists = bridgeAccountFailoverInputExists
+			if retainAdaptiveHistory {
+				// turnReplayInput/turnAccountFailoverInput 可能共享同一头数组（转移自
+				// bridgeCurrentItems），保存历史必须经 combine 新建头，禁止就地 append。
+				bridgeReplayInput = turnReplayInput
+				bridgeReplayInputExists = turnReplayInputExists
+				if result.wsReplayInputExists {
+					bridgeReplayInput = combineOpenAIWSReplayItems(bridgeReplayInput, result.wsReplayInput)
+					bridgeReplayInputExists = true
+				}
+				bridgeAccountFailoverInput = turnAccountFailoverInput
+				bridgeAccountFailoverInputExists = turnAccountFailoverInputExists
+				if len(result.wsAccountFailoverReplayInput) > 0 {
+					bridgeAccountFailoverInput = combineOpenAIWSReplayItems(
+						bridgeAccountFailoverInput,
+						result.wsAccountFailoverReplayInput,
+					)
+					bridgeAccountFailoverInputExists = true
+				}
+				if adaptive {
+					bridgeReplayInput = bridgeAccountFailoverInput
+					bridgeReplayInputExists = bridgeAccountFailoverInputExists
+				}
+			} else {
+				// The current turn result remains live while waiting for the next
+				// client frame. Clear its replay views too, not only the persistent
+				// bridge accumulators, so pure WS turns do not pin prior contexts.
+				bridgeReplayInput, bridgeAccountFailoverInput = nil, nil
+				bridgeReplayInputExists, bridgeAccountFailoverInputExists = false, false
+				result.wsReplayInput = nil
+				result.wsReplayInputExists = false
+				result.wsAccountFailoverReplayInput = nil
 			}
 			if dualLeg && !result.OpenAIWSHTTPBridge {
 				turnState = ""
