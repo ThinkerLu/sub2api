@@ -30,8 +30,8 @@ services:
     volumes:
       # Data persistence (config.yaml will be auto-generated here)
       - sub2api_data:/app/data
-      # Optional adaptive WS context policy. The feature stays disabled unless
-      # GATEWAY_OPENAI_WS_CONTEXT_POLICY_ENABLED=true is set.
+      # Optional adaptive WS context policy. The mounted file is loaded at
+      # startup; an absent file or empty account list disables the policy.
       - ./ws-context-policy:/app/ws-context-policy:ro
       # Optional: Mount custom config.yaml (uncomment and create the file first)
       # Copy config.example.yaml to config.yaml, modify it, then uncomment:
@@ -170,9 +170,7 @@ services:
       - SUB2API_IMAGES_MAIN_MODEL=${SUB2API_IMAGES_MAIN_MODEL:-gpt-5.6-luna}
       - GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT=${GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT:-0}
       - GATEWAY_OPENAI_WS_FORCE_HTTP=${GATEWAY_OPENAI_WS_FORCE_HTTP:-false}
-      - GATEWAY_OPENAI_WS_CONTEXT_POLICY_ENABLED=${GATEWAY_OPENAI_WS_CONTEXT_POLICY_ENABLED:-false}
       - GATEWAY_OPENAI_WS_CONTEXT_POLICY_FILE=${GATEWAY_OPENAI_WS_CONTEXT_POLICY_FILE:-/app/ws-context-policy/ws-context-policy.yaml}
-      - GATEWAY_OPENAI_WS_CONTEXT_POLICY_RELOAD_INTERVAL_SECONDS=${GATEWAY_OPENAI_WS_CONTEXT_POLICY_RELOAD_INTERVAL_SECONDS:-5}
       - GATEWAY_OPENAI_HTTP2_ENABLED=${GATEWAY_OPENAI_HTTP2_ENABLED:-true}
       - GATEWAY_OPENAI_HTTP2_ALLOW_PROXY_FALLBACK_TO_HTTP1=${GATEWAY_OPENAI_HTTP2_ALLOW_PROXY_FALLBACK_TO_HTTP1:-true}
       - GATEWAY_OPENAI_HTTP2_FALLBACK_ERROR_THRESHOLD=${GATEWAY_OPENAI_HTTP2_FALLBACK_ERROR_THRESHOLD:-2}
