@@ -12,7 +12,6 @@ Enable the registry with environment variables:
 ```sh
 MODEL_REGISTRY_ENABLED=true
 MODEL_REGISTRY_FILE=/app/model-registry/model-registry.yaml
-MODEL_REGISTRY_RELOAD_INTERVAL_SECONDS=5
 ```
 
 Keep the YAML file in a host directory and mount the directory read-only:
@@ -117,18 +116,22 @@ profiles when only capability or pricing needs an override.
 
 ## Reload
 
-The service checks the file every configured interval. A valid change is
-compiled into an immutable snapshot and swapped atomically. Invalid YAML,
-unknown profile references, negative prices, or invalid modalities are
-rejected; the previous valid snapshot remains active.
+The service loads the file at startup and does not poll it on a timer. After
+editing the file, trigger the shared manual reload signal. The same operation
+also reloads the adaptive WS context policy, so both files are refreshed by one
+command.
 
-For an immediate reload without restarting the service:
+From a deployment directory containing `reload.sh`:
 
 ```sh
-docker compose -f /home/thinkerlu/sub2api-deploy/docker-compose.yml kill -s HUP sub2api
+sudo ./reload.sh
 ```
 
-The release package also provides `reload.sh`.
+The script sends `SIGHUP` to the container. A valid change is compiled into an
+immutable snapshot and swapped atomically. Invalid YAML, unknown profile
+references, negative prices, or invalid modalities are rejected; the previous
+valid snapshot remains active. A failure in one runtime configuration does not
+prevent the other configuration from being reloaded.
 
 ## Precedence
 
