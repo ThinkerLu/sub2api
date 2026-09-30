@@ -22,6 +22,12 @@ sudo ./reload.sh
 ```yaml
 version: 1
 models:
+  gpt-6-sol:
+    capability_profile: gpt-6-sol
+  gpt-6-luna:
+    capability_profile: gpt-6-luna
+  gpt-6.1-sol:
+    capability_profile: gpt-6.1-sol
   deepseek-flash:
     capability_profile: deepseek-v4-flash-vision-exp
     pricing_profile: deepseek-v4-flash-vision-exp
@@ -30,6 +36,30 @@ models:
     pricing_profile: glm-5.3-flash
 
 capability_profiles:
+  gpt-6-sol:
+    input_modalities: [text, image]
+    context_window: 1050000
+    max_context_window: 1050000
+    supports_reasoning: true
+    default_reasoning_level: medium
+    supported_reasoning_levels: [low, medium, high, xhigh, max]
+    supports_parallel_tool_calls: true
+  gpt-6-luna:
+    input_modalities: [text, image]
+    context_window: 1050000
+    max_context_window: 1050000
+    supports_reasoning: true
+    default_reasoning_level: medium
+    supported_reasoning_levels: [low, medium, high, xhigh, max]
+    supports_parallel_tool_calls: true
+  gpt-6.1-sol:
+    input_modalities: [text, image]
+    context_window: 1050000
+    max_context_window: 1050000
+    supports_reasoning: true
+    default_reasoning_level: medium
+    supported_reasoning_levels: [low, medium, high, xhigh, max, ultra]
+    supports_parallel_tool_calls: true
   deepseek-v4-flash-vision-exp:
     input_modalities: [text, image]
     context_window: 1048576
@@ -43,7 +73,7 @@ capability_profiles:
     max_context_window: 1000000
     supports_reasoning: true
     default_reasoning_level: high
-    supported_reasoning_levels: [low, medium, high, xhigh, max, ultra]
+    supported_reasoning_levels: [low, high, max]
 
 pricing_profiles:
   deepseek-v4-flash-vision-exp:

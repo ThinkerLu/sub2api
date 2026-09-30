@@ -26,11 +26,22 @@ The file is not embedded in the image. Directory mounts are used instead of a
 single-file bind mount so replacing the file on the host remains visible inside
 the container.
 
+The release worktree keeps an operational snapshot at
+`deploy/model-registry/model-registry.yaml`. Update that snapshot together with
+the target host's `model-registry/model-registry.yaml` so local review and
+runtime configuration do not drift.
+
 ## Schema
 
 ```yaml
 version: 1
 models:
+  gpt-6-sol:
+    capability_profile: gpt-6-sol
+  gpt-6-luna:
+    capability_profile: gpt-6-luna
+  gpt-6.1-sol:
+    capability_profile: gpt-6.1-sol
   deepseek-flash:
     capability_profile: deepseek-v4-flash-vision-exp
     pricing_profile: deepseek-v4-flash-vision-exp
@@ -39,6 +50,36 @@ models:
     pricing_profile: glm-5.3-flash
 
 capability_profiles:
+  gpt-6-sol:
+    display_name: GPT-6 Sol
+    description: OpenAI GPT-6 Sol coding model.
+    input_modalities: [text, image]
+    context_window: 1050000
+    max_context_window: 1050000
+    supports_reasoning: true
+    default_reasoning_level: medium
+    supported_reasoning_levels: [low, medium, high, xhigh, max]
+    supports_parallel_tool_calls: true
+  gpt-6-luna:
+    display_name: GPT-6 Luna
+    description: OpenAI GPT-6 Luna coding model.
+    input_modalities: [text, image]
+    context_window: 1050000
+    max_context_window: 1050000
+    supports_reasoning: true
+    default_reasoning_level: medium
+    supported_reasoning_levels: [low, medium, high, xhigh, max]
+    supports_parallel_tool_calls: true
+  gpt-6.1-sol:
+    display_name: GPT-6.1 Sol
+    description: OpenAI GPT-6.1 Sol coding model.
+    input_modalities: [text, image]
+    context_window: 1050000
+    max_context_window: 1050000
+    supports_reasoning: true
+    default_reasoning_level: medium
+    supported_reasoning_levels: [low, medium, high, xhigh, max, ultra]
+    supports_parallel_tool_calls: true
   deepseek-v4-flash-vision-exp:
     display_name: DeepSeek V4.1 Flash
     description: DeepSeek coding and reasoning model.
@@ -58,7 +99,7 @@ capability_profiles:
     max_context_window: 1000000
     supports_reasoning: true
     default_reasoning_level: high
-    supported_reasoning_levels: [low, medium, high, xhigh, max, ultra]
+    supported_reasoning_levels: [low, high, max]
 
 pricing_profiles:
   deepseek-v4-flash-vision-exp:

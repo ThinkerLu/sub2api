@@ -119,6 +119,14 @@ func TestModelRegistryDeploymentExampleContainsRequiredModels(t *testing.T) {
 	registry, err := NewModelRegistryFromBytes(data)
 	require.NoError(t, err)
 
+	gpt61, ok := registry.Model("gpt-6.1-sol")
+	require.True(t, ok)
+	require.NotNil(t, gpt61.Capability)
+	require.Nil(t, gpt61.Pricing)
+	require.Equal(t, []string{"text", "image"}, gpt61.Capability.InputModalities)
+	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max", "ultra"}, gpt61.Capability.SupportedReasoningLevels)
+	require.Equal(t, int64(1050000), gpt61.Capability.ContextWindow)
+
 	deepseek, ok := registry.Model("deepseek-flash")
 	require.True(t, ok)
 	require.NotNil(t, deepseek.Capability)
@@ -134,7 +142,7 @@ func TestModelRegistryDeploymentExampleContainsRequiredModels(t *testing.T) {
 	require.NotNil(t, glm.Capability)
 	require.NotNil(t, glm.Pricing)
 	require.Equal(t, []string{"text", "image"}, glm.Capability.InputModalities)
-	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max", "ultra"}, glm.Capability.SupportedReasoningLevels)
+	require.Equal(t, []string{"low", "high", "max"}, glm.Capability.SupportedReasoningLevels)
 	require.Equal(t, 1.5e-7, glm.Pricing.InputPricePerToken)
 	require.Equal(t, 5e-7, glm.Pricing.OutputPricePerToken)
 	require.Equal(t, 3e-8, glm.Pricing.CacheReadPricePerToken)

@@ -4,6 +4,12 @@ version: 1
 # directory read-only into the container and edit it on the host to update
 # capabilities or pricing without changing the request's upstream model name.
 models:
+  gpt-6-sol:
+    capability_profile: gpt-6-sol
+  gpt-6-luna:
+    capability_profile: gpt-6-luna
+  gpt-6.1-sol:
+    capability_profile: gpt-6.1-sol
   deepseek-flash:
     capability_profile: deepseek-v4-flash-vision-exp
     pricing_profile: deepseek-v4-flash-vision-exp
@@ -12,6 +18,41 @@ models:
     pricing_profile: glm-5.3-flash
 
 capability_profiles:
+  # GPT-6 Sol is a native OpenAI model. The account model mapping exposes the
+  # slug; this profile supplies its reasoning capabilities.
+  gpt-6-sol:
+    display_name: GPT-6 Sol
+    description: OpenAI GPT-6 Sol coding model routed through Sub2API.
+    input_modalities: [text, image]
+    context_window: 1050000
+    max_context_window: 1050000
+    supports_reasoning: true
+    default_reasoning_level: medium
+    supported_reasoning_levels: [low, medium, high, xhigh, max]
+    supports_parallel_tool_calls: true
+  # GPT-6 Luna uses the same capability override path.
+  gpt-6-luna:
+    display_name: GPT-6 Luna
+    description: OpenAI GPT-6 Luna coding model routed through Sub2API.
+    input_modalities: [text, image]
+    context_window: 1050000
+    max_context_window: 1050000
+    supports_reasoning: true
+    default_reasoning_level: medium
+    supported_reasoning_levels: [low, medium, high, xhigh, max]
+    supports_parallel_tool_calls: true
+  # GPT-6.1 Sol is exposed through the account model mapping; this profile
+  # supplies its full reasoning range and image input capability.
+  gpt-6.1-sol:
+    display_name: GPT-6.1 Sol
+    description: OpenAI GPT-6.1 Sol coding model routed through Sub2API.
+    input_modalities: [text, image]
+    context_window: 1050000
+    max_context_window: 1050000
+    supports_reasoning: true
+    default_reasoning_level: medium
+    supported_reasoning_levels: [low, medium, high, xhigh, max, ultra]
+    supports_parallel_tool_calls: true
   # Source: DeepSeek official model metadata for
   # deepseek-v4-flash-vision-exp (https://api.deepseek.com).
   deepseek-v4-flash-vision-exp:
@@ -34,7 +75,7 @@ capability_profiles:
     max_context_window: 1000000
     supports_reasoning: true
     default_reasoning_level: high
-    supported_reasoning_levels: [low, medium, high, xhigh, max, ultra]
+    supported_reasoning_levels: [low, high, max]
 
 pricing_profiles:
   # USD per token. Source: DeepSeek official pricing for

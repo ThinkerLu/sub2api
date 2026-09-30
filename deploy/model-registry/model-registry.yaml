@@ -1,0 +1,91 @@
+version: 1
+
+# This file is intentionally outside the runtime image. Mount its containing
+# directory read-only into the container and edit it on the host to update
+# capabilities or pricing without changing the request's upstream model name.
+models:
+  gpt-6-sol:
+    capability_profile: gpt-6-sol
+  gpt-6-luna:
+    capability_profile: gpt-6-luna
+  gpt-6.1-sol:
+    capability_profile: gpt-6.1-sol
+  deepseek-flash:
+    capability_profile: deepseek-v4-flash-vision-exp
+    pricing_profile: deepseek-v4-flash-vision-exp
+  glm-5.3-flash:
+    capability_profile: glm-5.3-flash
+    pricing_profile: glm-5.3-flash
+
+capability_profiles:
+  # GPT-6 Sol is a native OpenAI model. The account model mapping exposes the
+  # slug; this profile supplies its reasoning capabilities.
+  gpt-6-sol:
+    display_name: GPT-6 Sol
+    description: OpenAI GPT-6 Sol coding model routed through Sub2API.
+    input_modalities: [text, image]
+    context_window: 1050000
+    max_context_window: 1050000
+    supports_reasoning: true
+    default_reasoning_level: medium
+    supported_reasoning_levels: [low, medium, high, xhigh, max]
+    supports_parallel_tool_calls: true
+  # GPT-6 Luna uses the same capability override path.
+  gpt-6-luna:
+    display_name: GPT-6 Luna
+    description: OpenAI GPT-6 Luna coding model routed through Sub2API.
+    input_modalities: [text, image]
+    context_window: 1050000
+    max_context_window: 1050000
+    supports_reasoning: true
+    default_reasoning_level: medium
+    supported_reasoning_levels: [low, medium, high, xhigh, max]
+    supports_parallel_tool_calls: true
+  # GPT-6.1 Sol is exposed through the account model mapping; this profile
+  # supplies its full reasoning range and image input capability.
+  gpt-6.1-sol:
+    display_name: GPT-6.1 Sol
+    description: OpenAI GPT-6.1 Sol coding model routed through Sub2API.
+    input_modalities: [text, image]
+    context_window: 1050000
+    max_context_window: 1050000
+    supports_reasoning: true
+    default_reasoning_level: medium
+    supported_reasoning_levels: [low, medium, high, xhigh, max, ultra]
+    supports_parallel_tool_calls: true
+  # Source: DeepSeek official model metadata for
+  # deepseek-v4-flash-vision-exp (https://api.deepseek.com).
+  deepseek-v4-flash-vision-exp:
+    display_name: DeepSeek V4.1 Flash
+    description: DeepSeek V4.1 Flash vision model for reasoning and agentic coding.
+    input_modalities: [text, image]
+    context_window: 1048576
+    max_context_window: 1048576
+    supports_reasoning: true
+    default_reasoning_level: high
+    supported_reasoning_levels: [low, medium, high, xhigh, max, ultra]
+    supports_parallel_tool_calls: true
+  # Source: Z.AI / Zhipu official metadata for glm-5.3-flash. Codex currently
+  # models text and image input; the upstream model also accepts video and PDF.
+  glm-5.3-flash:
+    display_name: GLM-5.3-Flash
+    description: Native multimodal GLM model for efficient coding and long-horizon agent tasks.
+    input_modalities: [text, image]
+    context_window: 1000000
+    max_context_window: 1000000
+    supports_reasoning: true
+    default_reasoning_level: high
+    supported_reasoning_levels: [low, high, max]
+
+pricing_profiles:
+  # USD per token. Source: DeepSeek official pricing for
+  # deepseek-v4-flash-vision-exp, off-peak base rates.
+  deepseek-v4-flash-vision-exp:
+    input_price_per_token: 0.00000015
+    output_price_per_token: 0.00000060
+    cache_read_price_per_token: 0.000000003
+  # USD per token. Source: Z.AI official list pricing for glm-5.3-flash.
+  glm-5.3-flash:
+    input_price_per_token: 0.00000015
+    output_price_per_token: 0.00000050
+    cache_read_price_per_token: 0.00000003
