@@ -21,5 +21,6 @@ beta3 修复：[Adaptive 上游 WS 轮间保活](2026-09-26-adaptive-ws-upstream
 | v0.2.9 发布工具压缩旧镜像备份 | [压缩备份](2026-09-29-v029-image-backup-compression.md) | v0.2.9-beta1-ws-standalone-named-output（工具 r2） |
 | 主服务器 v0.2.9 beta1 发布与回滚 | [主服务器交付](2026-09-29-main-v029-beta1-delivery.md) | v0.2.9-beta1-ws-standalone-named-output |
 | Adaptive WS 上下文累积策略 | [上下文策略](2026-09-30-adaptive-ws-context-accumulation-policy.md) | 待定（默认关闭，可热重载） |
+| 流量趋势指标对配色与差值显示 | [指标对配色](2026-09-30-traffic-trend-pair-colors.md) | 待定（默认生效，待合入发布分支） |
 
 v0.2.8-beta1 的打包与目标机操作见源码仓库 `tools/releases/dual-leg-thinking-ws-v028-beta1/README.md`。上传不代表已经部署；实际构建提交、验证结果及镜像摘要以发布包 manifest 为准。

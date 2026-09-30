@@ -25,6 +25,7 @@ export default {
       trafficEgress: 'Returned to client',
       trafficTrend: 'Traffic trend',
       trafficAll: 'Total traffic',
+      trafficPairDelta: '{first} ↔ {second} differs by {delta} ({percent}%)',
       trafficToday: 'Today',
       trafficTotal: 'Total',
       input: 'Input',

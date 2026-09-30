@@ -29,6 +29,7 @@ export default {
       trafficEgress: '返回客户端',
       trafficTrend: '流量趋势',
       trafficAll: '总量',
+      trafficPairDelta: '{first} ↔ {second} 相差 {delta}（{percent}%）',
       trafficToday: '今日',
       trafficTotal: '累计',
       input: '输入',
