@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -24,10 +25,10 @@ func TestOpenAIWSContextPolicyAccountScope(t *testing.T) {
 	require.True(t, policy.ShouldRetainAdaptiveHistory("langbase", true))
 	require.True(t, policy.ShouldRetainAdaptiveHistory("other", false))
 
-	allAccounts, err := NewOpenAIWSContextPolicyFromBytes([]byte("version: 1\naccounts: {}\n"))
+	noAccounts, err := NewOpenAIWSContextPolicyFromBytes([]byte("version: 1\naccounts: {}\n"))
 	require.NoError(t, err)
-	require.True(t, allAccounts.AppliesTo("any-account"))
-	require.False(t, allAccounts.ShouldRetainAdaptiveHistory("any-account", false))
+	require.False(t, noAccounts.AppliesTo("any-account"))
+	require.True(t, noAccounts.ShouldRetainAdaptiveHistory("any-account", false))
 
 	var nilPolicy *OpenAIWSContextPolicy
 	require.True(t, nilPolicy.ShouldRetainAdaptiveHistory("langbase", false))
@@ -58,10 +59,7 @@ func TestOpenAIWSContextPolicyReloadKeepsLastValidSnapshot(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ws-context-policy.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("version: 1\naccounts:\n  account-a: {}\n"), 0o600))
 	policy := &OpenAIWSContextPolicy{
-		enabled: true,
-		path:    path,
-		stopCh:  make(chan struct{}),
-		doneCh:  make(chan struct{}),
+		path: path,
 	}
 	require.NoError(t, policy.Reload())
 	require.True(t, policy.AppliesTo("account-a"))
@@ -75,6 +73,28 @@ func TestOpenAIWSContextPolicyReloadKeepsLastValidSnapshot(t *testing.T) {
 	require.NoError(t, policy.Reload())
 	require.False(t, policy.AppliesTo("account-a"))
 	require.True(t, policy.AppliesTo("account-b"))
+
+	require.NoError(t, os.Remove(path))
+	require.NoError(t, policy.Reload())
+	require.False(t, policy.AppliesTo("account-b"), "removing the policy file must disable the policy")
+}
+
+func TestOpenAIWSContextPolicyMissingFileDisablesPolicy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ws-context-policy.yaml")
+	policy := &OpenAIWSContextPolicy{path: path}
+	require.NoError(t, policy.Reload())
+	require.False(t, policy.AppliesTo("account-a"))
+}
+
+func TestInitializeOpenAIWSContextPolicyMissingFileDisablesPolicy(t *testing.T) {
+	previous := processOpenAIWSContextPolicy.Swap(nil)
+	t.Cleanup(func() { processOpenAIWSContextPolicy.Store(previous) })
+
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.ContextPolicy.File = filepath.Join(t.TempDir(), "missing-policy.yaml")
+	policy, err := InitializeOpenAIWSContextPolicy(cfg)
+	require.NoError(t, err)
+	require.False(t, policy.AppliesTo("account-a"))
 }
 
 func TestOpenAIWSContextPolicyDeploymentExample(t *testing.T) {
@@ -84,6 +104,29 @@ func TestOpenAIWSContextPolicyDeploymentExample(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, policy.AppliesTo("account-a"))
 	require.False(t, policy.AppliesTo("any-account"))
+}
+
+type runtimeConfigReloaderStub struct {
+	name    string
+	reloads int
+	err     error
+}
+
+func (s *runtimeConfigReloaderStub) Name() string { return s.name }
+func (s *runtimeConfigReloaderStub) Reload() error {
+	s.reloads++
+	return s.err
+}
+
+func TestReloadRuntimeConfigsReloadsAllAndJoinsErrors(t *testing.T) {
+	first := &runtimeConfigReloaderStub{name: "first"}
+	second := &runtimeConfigReloaderStub{name: "second", err: errors.New("bad config")}
+	third := &runtimeConfigReloaderStub{name: "third"}
+	err := ReloadRuntimeConfigs(first, nil, second, third)
+	require.ErrorContains(t, err, "reload second: bad config")
+	require.Equal(t, 1, first.reloads)
+	require.Equal(t, 1, second.reloads)
+	require.Equal(t, 1, third.reloads)
 }
 
 func TestAdaptiveContextPolicyPureWSUsesFullReconnect(t *testing.T) {

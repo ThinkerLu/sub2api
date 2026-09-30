@@ -686,11 +686,10 @@ type PricingConfig struct {
 }
 
 // ModelRegistryConfig 控制外置模型能力/价格档案。数据文件由部署目录挂载，
-// 不打包进镜像；服务启动时读取，并按配置间隔检测文件变化后原子重载。
+// 不打包进镜像；服务启动时读取，之后由统一的手动重载信号原子替换快照。
 type ModelRegistryConfig struct {
-	Enabled               bool   `mapstructure:"enabled"`
-	File                  string `mapstructure:"file"`
-	ReloadIntervalSeconds int    `mapstructure:"reload_interval_seconds"`
+	Enabled bool   `mapstructure:"enabled"`
+	File    string `mapstructure:"file"`
 }
 
 type ServerConfig struct {
@@ -1348,11 +1347,10 @@ type GatewayOpenAIWSConfig struct {
 }
 
 // GatewayOpenAIWSContextPolicyConfig 控制 adaptive WS 历史是否只保留 HTTP 桥轮次。
-// 策略数据放在外置 YAML 中，并由独立快照加载器热重载；关闭时保持原有累积行为。
+// 策略数据放在外置 YAML 中；文件存在且账号列表非空时生效，由统一的手动重载
+// 信号原子替换快照。
 type GatewayOpenAIWSContextPolicyConfig struct {
-	Enabled               bool   `mapstructure:"enabled"`
-	File                  string `mapstructure:"file"`
-	ReloadIntervalSeconds int    `mapstructure:"reload_interval_seconds"`
+	File string `mapstructure:"file"`
 }
 
 // GatewayOpenAIWSSchedulerScoreWeights 账号调度打分权重。
@@ -2431,9 +2429,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_ws.client_read_limit_bytes", 64*1024*1024)
 	viper.SetDefault("gateway.openai_ws.http_bridge_enabled", true)
 	viper.SetDefault("gateway.openai_ws.http_bridge_threshold_bytes", 15*1024*1024)
-	viper.SetDefault("gateway.openai_ws.context_policy.enabled", false)
 	viper.SetDefault("gateway.openai_ws.context_policy.file", "./ws-context-policy/ws-context-policy.yaml")
-	viper.SetDefault("gateway.openai_ws.context_policy.reload_interval_seconds", 5)
 	viper.SetDefault("gateway.openai_ws.responses_websockets", false)
 	viper.SetDefault("gateway.openai_ws.responses_websockets_v2", true)
 	viper.SetDefault("gateway.openai_ws.max_conns_per_account", 128)
@@ -2507,7 +2503,6 @@ func setDefaults() {
 	viper.SetDefault("gateway.text_max_body_size", int64(32*1024*1024))
 	viper.SetDefault("model_registry.enabled", false)
 	viper.SetDefault("model_registry.file", "./model-registry/model-registry.yaml")
-	viper.SetDefault("model_registry.reload_interval_seconds", 5)
 	viper.SetDefault("gateway.upstream_response_read_max_bytes", DefaultUpstreamResponseReadMaxBytes)
 	viper.SetDefault("gateway.models_list_read_max_bytes", DefaultModelsListReadMaxBytes)
 	viper.SetDefault("gateway.proxy_probe_response_read_max_bytes", int64(1024*1024))
@@ -3325,9 +3320,6 @@ func (c *Config) Validate() error {
 	if c.ModelRegistry.Enabled && strings.TrimSpace(c.ModelRegistry.File) == "" {
 		return fmt.Errorf("model_registry.file must be configured when model_registry.enabled is true")
 	}
-	if c.ModelRegistry.ReloadIntervalSeconds < 0 {
-		return fmt.Errorf("model_registry.reload_interval_seconds must be non-negative")
-	}
 	if c.Gateway.ProxyProbeResponseReadMaxBytes <= 0 {
 		return fmt.Errorf("gateway.proxy_probe_response_read_max_bytes must be positive")
 	}
@@ -3499,12 +3491,6 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.OpenAIWS.HTTPBridgeEnabled && c.Gateway.OpenAIWS.HTTPBridgeThresholdBytes == 0 {
 		return fmt.Errorf("gateway.openai_ws.http_bridge_threshold_bytes must be positive when http_bridge_enabled is true")
-	}
-	if c.Gateway.OpenAIWS.ContextPolicy.Enabled && strings.TrimSpace(c.Gateway.OpenAIWS.ContextPolicy.File) == "" {
-		return fmt.Errorf("gateway.openai_ws.context_policy.file must be configured when context_policy.enabled is true")
-	}
-	if c.Gateway.OpenAIWS.ContextPolicy.ReloadIntervalSeconds < 0 {
-		return fmt.Errorf("gateway.openai_ws.context_policy.reload_interval_seconds must be non-negative")
 	}
 	if c.Gateway.OpenAIWS.FallbackCooldownSeconds < 0 {
 		return fmt.Errorf("gateway.openai_ws.fallback_cooldown_seconds must be non-negative")

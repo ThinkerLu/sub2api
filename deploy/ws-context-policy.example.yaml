@@ -2,9 +2,6 @@ version: 1
 
 # Optional account scope for the adaptive WS context accumulation policy.
 # Entries match the exact account Name value shown in the admin console.
-# An empty map applies the policy to every account; keep named entries for
-# controlled rollout.
-#
-# The policy is inert while gateway.openai_ws.context_policy.enabled is false.
+# The policy is inactive when this file is absent or the account map is empty.
 accounts:
   account-a: {}

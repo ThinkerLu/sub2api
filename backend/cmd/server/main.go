@@ -144,12 +144,10 @@ func runMainServer() {
 	if err != nil {
 		log.Fatalf("Failed to initialize model registry: %v", err)
 	}
-	defer modelRegistry.Close()
 	wsContextPolicy, err := service.InitializeOpenAIWSContextPolicy(cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize OpenAI WS context policy: %v", err)
 	}
-	defer wsContextPolicy.Close()
 	reloadQuit := make(chan struct{})
 	defer close(reloadQuit)
 	reloadSignal := make(chan os.Signal, 1)
@@ -159,11 +157,10 @@ func runMainServer() {
 		for {
 			select {
 			case <-reloadSignal:
-				if err := modelRegistry.Reload(); err != nil {
-					log.Printf("Model registry reload failed; keeping previous snapshot: %v", err)
-				}
-				if err := wsContextPolicy.Reload(); err != nil {
-					log.Printf("OpenAI WS context policy reload failed; keeping previous snapshot: %v", err)
+				if err := service.ReloadRuntimeConfigs(modelRegistry, wsContextPolicy); err != nil {
+					log.Printf("Runtime config reload failed; keeping previous valid snapshots: %v", err)
+				} else {
+					log.Printf("Runtime config reload completed")
 				}
 			case <-reloadQuit:
 				return

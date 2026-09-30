@@ -39,18 +39,9 @@ type openAIWSContextPolicyAccount struct{}
 // accounts that should retain adaptive WS history only for HTTP bridge turns.
 // Reload failures never replace the last valid snapshot.
 type OpenAIWSContextPolicy struct {
-	enabled        bool
-	path           string
-	reloadInterval time.Duration
-	snapshot       atomic.Pointer[openAIWSContextPolicySnapshot]
-	reloadMu       sync.Mutex
-	startOnce      sync.Once
-	stopOnce       sync.Once
-	stopCh         chan struct{}
-	doneCh         chan struct{}
-	started        atomic.Bool
-	lastErrorMu    sync.Mutex
-	lastError      string
+	path     string
+	snapshot atomic.Pointer[openAIWSContextPolicySnapshot]
+	reloadMu sync.Mutex
 }
 
 var processOpenAIWSContextPolicy atomic.Pointer[OpenAIWSContextPolicy]
@@ -62,25 +53,23 @@ func CurrentOpenAIWSContextPolicy() *OpenAIWSContextPolicy {
 }
 
 // InitializeOpenAIWSContextPolicy loads and publishes the process-level policy.
-// When enabled, the initial file must be valid; startup fails instead of
-// silently applying a partial or unintended account scope.
+// A missing file disables the policy. An existing but invalid file fails
+// startup instead of silently applying a partial or unintended account scope.
 func InitializeOpenAIWSContextPolicy(cfg *config.Config) (*OpenAIWSContextPolicy, error) {
-	policy := &OpenAIWSContextPolicy{stopCh: make(chan struct{}), doneCh: make(chan struct{})}
-	if cfg != nil && cfg.Gateway.OpenAIWS.ContextPolicy.Enabled {
-		policy.enabled = true
+	policy := &OpenAIWSContextPolicy{}
+	if cfg != nil {
 		policy.path = strings.TrimSpace(cfg.Gateway.OpenAIWS.ContextPolicy.File)
-		policy.reloadInterval = time.Duration(cfg.Gateway.OpenAIWS.ContextPolicy.ReloadIntervalSeconds) * time.Second
-		if policy.path == "" {
-			return nil, errors.New("gateway.openai_ws.context_policy.file is required when context_policy.enabled is true")
-		}
+	}
+	if policy.path != "" {
 		if err := policy.Reload(); err != nil {
 			return nil, fmt.Errorf("load OpenAI WS context policy: %w", err)
 		}
 	}
 	processOpenAIWSContextPolicy.Store(policy)
-	policy.Start()
 	return policy, nil
 }
+
+func (p *OpenAIWSContextPolicy) Name() string { return "OpenAI WS context policy" }
 
 // SetCurrentOpenAIWSContextPolicyForTest swaps the process-level policy and
 // returns a restore function. It keeps tests isolated without exposing mutable
@@ -95,7 +84,7 @@ func NewOpenAIWSContextPolicyFromBytes(data []byte) (*OpenAIWSContextPolicy, err
 	if err != nil {
 		return nil, err
 	}
-	policy := &OpenAIWSContextPolicy{enabled: true, stopCh: make(chan struct{}), doneCh: make(chan struct{})}
+	policy := &OpenAIWSContextPolicy{}
 	policy.snapshot.Store(snapshot)
 	return policy, nil
 }
@@ -113,62 +102,32 @@ func (p *OpenAIWSContextPolicy) ShouldRetainAdaptiveHistory(accountName string, 
 
 // AppliesTo reports whether the enabled policy scopes the named account.
 func (p *OpenAIWSContextPolicy) AppliesTo(accountName string) bool {
-	if p == nil || !p.enabled {
+	if p == nil {
 		return false
 	}
 	snapshot := p.snapshot.Load()
-	if snapshot == nil {
+	if snapshot == nil || len(snapshot.accounts) == 0 {
 		return false
 	}
-	if len(snapshot.accounts) > 0 {
-		if _, ok := snapshot.accounts[strings.TrimSpace(accountName)]; !ok {
-			return false
-		}
+	if _, ok := snapshot.accounts[strings.TrimSpace(accountName)]; !ok {
+		return false
 	}
 	return true
 }
 
-func (p *OpenAIWSContextPolicy) Start() {
-	if p == nil || !p.enabled || p.reloadInterval <= 0 {
-		return
-	}
-	p.startOnce.Do(func() {
-		p.started.Store(true)
-		go func() {
-			defer close(p.doneCh)
-			ticker := time.NewTicker(p.reloadInterval)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					if err := p.Reload(); err != nil {
-						p.logReloadError(err)
-					}
-				case <-p.stopCh:
-					return
-				}
-			}
-		}()
-		log.Printf("[OpenAIWSContextPolicy] watching %s every %s", p.path, p.reloadInterval)
-	})
-}
-
-func (p *OpenAIWSContextPolicy) Close() {
-	if p == nil || !p.started.Load() {
-		return
-	}
-	p.stopOnce.Do(func() { close(p.stopCh) })
-	<-p.doneCh
-}
-
 func (p *OpenAIWSContextPolicy) Reload() error {
-	if p == nil || !p.enabled {
+	if p == nil || strings.TrimSpace(p.path) == "" {
 		return nil
 	}
 	p.reloadMu.Lock()
 	defer p.reloadMu.Unlock()
 
 	info, err := os.Stat(p.path)
+	if errors.Is(err, os.ErrNotExist) {
+		p.snapshot.Store(nil)
+		log.Printf("[OpenAIWSContextPolicy] disabled; policy file %s is absent", p.path)
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("stat %s: %w", p.path, err)
 	}
@@ -182,7 +141,6 @@ func (p *OpenAIWSContextPolicy) Reload() error {
 	digest := sha256.Sum256(data)
 	hash := hex.EncodeToString(digest[:])
 	if current := p.snapshot.Load(); current != nil && current.sourceSHA256 == hash {
-		p.clearReloadError()
 		return nil
 	}
 	snapshot, err := parseOpenAIWSContextPolicySnapshot(data)
@@ -192,29 +150,8 @@ func (p *OpenAIWSContextPolicy) Reload() error {
 	snapshot.sourceSHA256 = hash
 	snapshot.loadedAt = time.Now().UTC()
 	p.snapshot.Store(snapshot)
-	p.clearReloadError()
 	log.Printf("[OpenAIWSContextPolicy] loaded %d scoped accounts from %s", len(snapshot.accounts), p.path)
 	return nil
-}
-
-func (p *OpenAIWSContextPolicy) logReloadError(err error) {
-	if p == nil || err == nil {
-		return
-	}
-	message := err.Error()
-	p.lastErrorMu.Lock()
-	defer p.lastErrorMu.Unlock()
-	if message == p.lastError {
-		return
-	}
-	p.lastError = message
-	log.Printf("[OpenAIWSContextPolicy] reload failed; keeping previous snapshot: %v", err)
-}
-
-func (p *OpenAIWSContextPolicy) clearReloadError() {
-	p.lastErrorMu.Lock()
-	p.lastError = ""
-	p.lastErrorMu.Unlock()
 }
 
 func parseOpenAIWSContextPolicySnapshot(data []byte) (*openAIWSContextPolicySnapshot, error) {

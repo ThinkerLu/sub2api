@@ -105,18 +105,14 @@ type modelRegistryPricingProfile struct {
 // ModelRegistry owns an immutable, atomically replaceable view of an external
 // model metadata file. Reload failures never replace the last valid snapshot.
 type ModelRegistry struct {
-	enabled        bool
-	path           string
-	reloadInterval time.Duration
-	snapshot       atomic.Pointer[modelRegistrySnapshot]
-	reloadMu       sync.Mutex
-	startOnce      sync.Once
-	stopOnce       sync.Once
-	stopCh         chan struct{}
-	doneCh         chan struct{}
-	started        atomic.Bool
-	lastErrorMu    sync.Mutex
-	lastError      string
+	enabled  bool
+	path     string
+	snapshot atomic.Pointer[modelRegistrySnapshot]
+	reloadMu sync.Mutex
+	// Lifecycle channels are retained for construction compatibility; reloading
+	// is manual and no background watcher runs.
+	stopCh chan struct{}
+	doneCh chan struct{}
 }
 
 var processModelRegistry atomic.Pointer[ModelRegistry]
@@ -131,11 +127,10 @@ func CurrentModelRegistry() *ModelRegistry {
 // enabled, the initial file must be valid; callers should fail startup instead
 // of silently reverting to unrelated local pricing and capability defaults.
 func InitializeModelRegistry(cfg *config.Config) (*ModelRegistry, error) {
-	registry := &ModelRegistry{stopCh: make(chan struct{}), doneCh: make(chan struct{})}
+	registry := &ModelRegistry{}
 	if cfg != nil && cfg.ModelRegistry.Enabled {
 		registry.enabled = true
 		registry.path = strings.TrimSpace(cfg.ModelRegistry.File)
-		registry.reloadInterval = time.Duration(cfg.ModelRegistry.ReloadIntervalSeconds) * time.Second
 		if registry.path == "" {
 			return nil, errors.New("model_registry.file is required when model_registry.enabled is true")
 		}
@@ -144,9 +139,10 @@ func InitializeModelRegistry(cfg *config.Config) (*ModelRegistry, error) {
 		}
 	}
 	processModelRegistry.Store(registry)
-	registry.Start()
 	return registry, nil
 }
+
+func (r *ModelRegistry) Name() string { return "model registry" }
 
 // SetCurrentModelRegistryForTest swaps the process-level registry and returns
 // a restore function. It keeps tests isolated without exposing mutable state.
@@ -160,42 +156,9 @@ func NewModelRegistryFromBytes(data []byte) (*ModelRegistry, error) {
 	if err != nil {
 		return nil, err
 	}
-	registry := &ModelRegistry{stopCh: make(chan struct{}), doneCh: make(chan struct{})}
+	registry := &ModelRegistry{}
 	registry.snapshot.Store(snapshot)
 	return registry, nil
-}
-
-func (r *ModelRegistry) Start() {
-	if r == nil || !r.enabled || r.reloadInterval <= 0 {
-		return
-	}
-	r.startOnce.Do(func() {
-		r.started.Store(true)
-		go func() {
-			defer close(r.doneCh)
-			ticker := time.NewTicker(r.reloadInterval)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					if err := r.Reload(); err != nil {
-						r.logReloadError(err)
-					}
-				case <-r.stopCh:
-					return
-				}
-			}
-		}()
-		log.Printf("[ModelRegistry] watching %s every %s", r.path, r.reloadInterval)
-	})
-}
-
-func (r *ModelRegistry) Close() {
-	if r == nil || !r.started.Load() {
-		return
-	}
-	r.stopOnce.Do(func() { close(r.stopCh) })
-	<-r.doneCh
 }
 
 func (r *ModelRegistry) Reload() error {
@@ -219,7 +182,6 @@ func (r *ModelRegistry) Reload() error {
 	digest := sha256.Sum256(data)
 	hash := hex.EncodeToString(digest[:])
 	if current := r.snapshot.Load(); current != nil && current.sourceSHA256 == hash {
-		r.clearReloadError()
 		return nil
 	}
 	snapshot, err := parseModelRegistrySnapshot(data)
@@ -229,7 +191,6 @@ func (r *ModelRegistry) Reload() error {
 	snapshot.sourceSHA256 = hash
 	snapshot.loadedAt = time.Now().UTC()
 	r.snapshot.Store(snapshot)
-	r.clearReloadError()
 	log.Printf("[ModelRegistry] loaded %d models from %s", len(snapshot.models), r.path)
 	return nil
 }
@@ -292,26 +253,6 @@ func (r *ModelRegistry) SnapshotInfo() map[string]any {
 		"source_sha256": snapshot.sourceSHA256,
 		"loaded_at":     snapshot.loadedAt,
 	}
-}
-
-func (r *ModelRegistry) logReloadError(err error) {
-	if r == nil || err == nil {
-		return
-	}
-	message := err.Error()
-	r.lastErrorMu.Lock()
-	defer r.lastErrorMu.Unlock()
-	if message == r.lastError {
-		return
-	}
-	r.lastError = message
-	log.Printf("[ModelRegistry] reload failed; keeping previous snapshot: %v", err)
-}
-
-func (r *ModelRegistry) clearReloadError() {
-	r.lastErrorMu.Lock()
-	r.lastError = ""
-	r.lastErrorMu.Unlock()
 }
 
 func parseModelRegistrySnapshot(data []byte) (*modelRegistrySnapshot, error) {
