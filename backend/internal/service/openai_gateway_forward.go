@@ -144,6 +144,27 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		(account.UsesOpenAICodexProtocol() || gjson.GetBytes(body, "store").Type == gjson.False) {
 		return nil, writeOpenAIHTTPFullContextRequired(c)
 	}
+	// Codex V2 分组策略一期不支持 WSv2 上游：启用分组在向上游写入前明确拒绝，
+	// 不原样透传、也不静默改走其它路由。未启用分组保持原行为。
+	// Codex V2 一期按“实际选中的上游协议”判定父端：启用组选中的 OpenAI 平台
+	// 账号若实际路由为 forced Chat Completions 回退，请求会被转成 Chat 形态，
+	// 回程没有任何 encrypted_function_args 注入点，父端 schema 改写会变成半套
+	// 改写。必须在任何父端/子端改写之前本地拒绝，且不计账号失败。
+	// 关闭组保持原回退行为；非 OpenAI 平台的 Chat bridge 属于子端支持范围，不受此限。
+	if rejectionErr := codexV2ForcedChatCompletionsRejection(c, account); rejectionErr != nil {
+		WriteCodexV2RequestPolicyError(c, rejectionErr)
+		return nil, rejectionErr
+	}
+	// 按 API Key 分组应用 Codex V2 策略：父端移除 collaboration message 的
+	// encrypted 标记（OpenAI 上游），子端把明文 agent_message 换成普通 user 消息
+	// （非 OpenAI 上游）。必须排在 namespace 摊平之前，摊平会复制子工具声明、
+	// 之后无法再定位 collaboration 命名空间。未启用分组、非目标请求原样返回。
+	policiedBody, policyErr := applyCodexV2UpstreamRequestPolicies(c, account, body)
+	if policyErr != nil {
+		WriteCodexV2RequestPolicyError(c, policyErr)
+		return nil, policyErr
+	}
+	body = policiedBody
 	if shouldFlattenOpenAIResponsesNamespaces(account, wsDecision.Transport, passthroughEnabled, compactPath) {
 		body, err = flattenOpenAIResponsesNamespaces(c, body)
 		if err != nil {

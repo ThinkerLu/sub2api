@@ -666,6 +666,7 @@ readLoop:
 				}
 			}
 			message = restoreCodexToolNamesFromContext(c, message)
+			message = applyCodexV2ParentResponsePolicy(c, message)
 		}
 		if openAIWSMessageShouldParseUsage(eventType, message) {
 			parseOpenAIWSResponseUsageFromCompletedEvent(message, usage)

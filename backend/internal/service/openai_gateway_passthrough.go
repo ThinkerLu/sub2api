@@ -2045,6 +2045,12 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 					trimmedData = strings.TrimSpace(string(restoredData))
 					line = "data: " + string(restoredData)
 				}
+				// Codex V2 父端回程：补精确的 encrypted_function_args: []（仅明文调用项）。
+				if markedData := applyCodexV2ParentResponsePolicy(c, dataBytes); !bytes.Equal(markedData, dataBytes) {
+					dataBytes = markedData
+					trimmedData = strings.TrimSpace(string(markedData))
+					line = "data: " + string(markedData)
+				}
 			}
 			eventType := effectiveOpenAISSEEventType(dataBytes, rawEventType)
 			if codexFailureTerminal && sawBareError && !sawResponseFailed && eventType != "response.failed" {
@@ -2352,6 +2358,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if err != nil {
 		return nil, fmt.Errorf("restore OpenAI Responses client tools: %w", err)
 	}
+	body = applyCodexV2ParentResponsePolicy(c, body)
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Data(resp.StatusCode, contentType, body)
 	}
@@ -2419,6 +2426,8 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		}
 		body = []byte(bodyText)
 	}
+	// Codex V2 父端回程：补精确的 encrypted_function_args: []（仅明文调用项）。
+	body = applyCodexV2ParentResponsePolicy(c, body)
 
 	writeOpenAIPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	logOpenAISuccessMissingUsage(c.Request.Context(), c, account, resp, usage, terminalType, false)

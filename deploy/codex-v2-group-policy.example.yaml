@@ -1,0 +1,16 @@
+version: 1
+
+# 一期 Codex MultiAgentV2 跨模型兼容策略。
+#
+# 该文件不在运行镜像内：把所在目录以只读方式挂载进容器，修改后由服务按期轮询，
+# 或对容器发送 SIGHUP 立即重载。默认关闭：file 未配置时所有分组都不启用。
+#
+# 键是 API Key 的不可变 GroupID（不是分组名）。enabled 必须显式书写。
+# 未列出的分组、enabled: false 的分组都保持原有行为。
+groups:
+  # 示例：启用分组 12 的父端明文协作工具与子端 agent_message 改写。
+  "12":
+    enabled: true
+  # 示例：显式关闭分组 34（与不列出等价，写出来便于审计）。
+  "34":
+    enabled: false

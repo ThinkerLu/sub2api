@@ -22,6 +22,12 @@ const (
 	OpsUpstreamErrorsKey       = "ops_upstream_errors"
 	OpsUpstreamModelKey        = "ops_upstream_model"
 
+	// OpsLocalClientRejectionKey 标记本请求最终以本地请求策略拒绝收尾（例如 Codex V2
+	// 分组策略）。同一次 HTTP 请求可能先有一次上游失败并换号，随后某一账号才命中本地
+	// 拒绝；最终归因应取本地 client 侧，不能被先前尝试留下的上游错误上下文改写，
+	// 而按尝试累积的诊断事件仍然保留。
+	OpsLocalClientRejectionKey = "ops_local_client_rejection"
+
 	// Optional stage latencies (milliseconds) for troubleshooting and alerting.
 	OpsAuthLatencyMsKey      = "ops_auth_latency_ms"
 	OpsRoutingLatencyMsKey   = "ops_routing_latency_ms"
@@ -63,6 +69,34 @@ const (
 )
 
 func MarkResponseCommitted(c *gin.Context) { c.Set(ResponseCommittedKey, true) }
+
+// MarkOpsLocalClientRejection 声明本请求的最终结果是本地请求策略拒绝。
+//
+// 它清空“当前上游错误”的状态码/消息/详情三个字段，避免最终 ops 条目把它们当作
+// 本次请求的上游归因（这三个字段按设计描述最近一次上游尝试，而不是最终结论）；
+// 按尝试累积的诊断事件（OpsUpstreamErrorsKey）保持不变，仍可追溯先前尝试。
+func MarkOpsLocalClientRejection(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	c.Set(OpsLocalClientRejectionKey, true)
+	c.Set(OpsUpstreamStatusCodeKey, 0)
+	c.Set(OpsUpstreamErrorMessageKey, "")
+	c.Set(OpsUpstreamErrorDetailKey, "")
+}
+
+// HasOpsLocalClientRejection 报告本请求的最终结果是否为本地请求策略拒绝。
+func HasOpsLocalClientRejection(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	value, ok := c.Get(OpsLocalClientRejectionKey)
+	if !ok {
+		return false
+	}
+	marked, _ := value.(bool)
+	return marked
+}
 
 func IsResponseCommitted(c *gin.Context) bool {
 	v, ok := c.Get(ResponseCommittedKey)
