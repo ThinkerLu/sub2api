@@ -1,5 +1,7 @@
 # 功能索引
 
+HTTP→WS 流量统计：[上游流量统计修复](2026-10-01-http-ws-traffic-accounting.md)，首次 `v0.2.11-probe19-http-ws-traffic`，仅备用机发布分支。
+
 原生 WS 分组兼容：[命名空间替换与原生 WS](2026-10-01-codex-v2-native-ws.md)，
 目标版本 `v0.2.8-probe17-codex-v2-native-ws`（仅备用机探针）。
 

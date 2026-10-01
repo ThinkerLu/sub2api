@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -309,6 +310,9 @@ func (c *coderOpenAIWSClientConn) WriteJSON(ctx context.Context, value any) erro
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if counter, _ := ctx.Value(openAIHTTPWSTrafficKey{}).(*UsageTrafficCounter); counter != nil {
+		return json.NewEncoder(openAIWSTrafficWriter{ctx: ctx, conn: c.conn, counter: counter}).Encode(value)
+	}
 	return wsjson.Write(ctx, c.conn, value)
 }
 
@@ -395,4 +399,20 @@ func (c *coderOpenAIWSClientConn) CloseNow() error {
 	}
 	_ = c.conn.CloseNow()
 	return nil
+}
+
+// Only the HTTP-to-WS forwarder enables this counter; WS ingress owns its turn counters.
+type openAIHTTPWSTrafficKey struct{}
+type openAIWSTrafficWriter struct {
+	ctx     context.Context
+	conn    *coderws.Conn
+	counter *UsageTrafficCounter
+}
+
+func (w openAIWSTrafficWriter) Write(p []byte) (int, error) {
+	if err := w.conn.Write(w.ctx, coderws.MessageText, p); err != nil {
+		return 0, err
+	}
+	w.counter.AddUpstreamRequestBodyBytes(len(p))
+	return len(p), nil
 }
