@@ -1090,11 +1090,16 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 	currentTraffic := &atomic.Pointer[UsageTrafficCounter]{}
 	currentTraffic.Store(NewUsageTrafficCounter())
+	nativeCodexPolicy := newCodexV2NativeWSPolicy(c)
 	trafficUpstreamFrameConn := &openAIWSTrafficFrameConn{
 		inner:    relayUpstreamFrameConn,
 		current:  currentTraffic,
 		readDir:  openAIWSTrafficUpstreamResponse,
 		writeDir: openAIWSTrafficUpstreamRequest,
+	}
+	var wireUpstreamFrameConn openaiwsv2.FrameConn = trafficUpstreamFrameConn
+	if nativeCodexPolicy.enabled {
+		wireUpstreamFrameConn = &codexV2NativeWSFrameConn{inner: trafficUpstreamFrameConn, policy: nativeCodexPolicy}
 	}
 
 	completedTurns := atomic.Int32{}
@@ -1115,7 +1120,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			return replaceOpenAIWSMessageModel(payload, upstreamModel, requestModel)
 		},
 		restoreToolNames: func(payload []byte) []byte {
-			return restoreCodexToolNamesFromContext(c, payload)
+			return nativeCodexPolicy.Restore(restoreCodexToolNamesFromContext(c, payload))
 		},
 	}
 	if hooks != nil {
@@ -1302,7 +1307,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	currentTraffic.Load().AddIngressBodyBytes(len(firstClientMessage))
 	firstWriteCtx, cancelFirstWrite := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
 	openAIWSCommitFromContext(ctx).advance(openAIWSTurnSentUnknown)
-	firstWriteErr := trafficUpstreamFrameConn.WriteFrame(firstWriteCtx, coderws.MessageText, firstClientMessage)
+	firstWriteErr := wireUpstreamFrameConn.WriteFrame(firstWriteCtx, coderws.MessageText, firstClientMessage)
 	cancelFirstWrite()
 	if firstWriteErr != nil {
 		return wrapOpenAIWSIngressTurnError(
@@ -1322,7 +1327,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if (msgType == coderws.MessageText || msgType == coderws.MessageBinary) && strings.TrimSpace(gjson.GetBytes(payload, "type").String()) == "response.create" {
 				return msgType, payload, nil
 			}
-			if writeErr := trafficUpstreamFrameConn.WriteFrame(readCtx, msgType, payload); writeErr != nil {
+			if writeErr := wireUpstreamFrameConn.WriteFrame(readCtx, msgType, payload); writeErr != nil {
 				return msgType, payload, writeErr
 			}
 		}
@@ -1336,7 +1341,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	relayResult, relayExit := openaiwsv2.RunEntry(openaiwsv2.EntryInput{
 		Ctx:                ctx,
 		ClientConn:         trafficClientConn,
-		UpstreamConn:       trafficUpstreamFrameConn,
+		UpstreamConn:       wireUpstreamFrameConn,
 		FirstClientMessage: firstClientMessage,
 		Options: openaiwsv2.RelayOptions{
 			SingleTurn:              hooks != nil && hooks.adaptiveSingleTurn,

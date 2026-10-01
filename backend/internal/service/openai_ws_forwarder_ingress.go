@@ -168,6 +168,12 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 				forceHTTPBridge = true
 				break
 			}
+			// Codex V2 分组策略一期不支持 WSv2 直通：在首帧写入上游之前明确拒绝，
+			// 不原样透传、也不静默改走其它路由。启用该策略且需要 HTTP bridge 的
+			// 大请求仍由上面的 bridge 判定改走 HTTP。
+			if err := codexV2WSv2GuardError(c, false); err != nil {
+				return err
+			}
 			// 首轮准入由握手路径完成；后续 response.create 会在写入上游前
 			// 依次回调 BeforeRequest 和 BeforeTurn，并在终止或失败时回调
 			// AfterTurn，从而覆盖 turn 级利润复核、定价冻结和并发槽位释放。
@@ -534,10 +540,12 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 		}, nil
 	}
 
+	nativeCodexPolicy := newCodexV2NativeWSPolicy(c)
 	writeClientMessage := func(message []byte) error {
 		writeCtx, cancel := newOpenAIWSDownstreamWriteContext(ctx, hooks, s.openAIWSWriteTimeout())
 		defer cancel()
 		message = restoreCodexToolNamesFromContext(c, message)
+		message = nativeCodexPolicy.Restore(message)
 		if hooks != nil {
 			hooks.adaptiveReader.beforeWrite(message)
 		}
@@ -585,6 +593,14 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 	firstRouteModel := strings.TrimSpace(gjson.GetBytes(firstPayload.payloadRaw, "model").String())
 	firstRouteBytes := max(firstPayload.payloadBytes, firstPayload.rawFrameBytes)
 	useHTTPBridge := forceHTTPBridge || s.shouldBridgeOpenAIWSHTTP(account, firstRouteBytes, firstPayload.previousResponseID, firstRouteModel)
+	// Codex V2 分组策略一期不支持任何上游 WS 腿：ctx_pool/shared/dedicated 等
+	// 直连模式在首帧写入上游前明确拒绝。adaptive 虽然也置了 forceHTTPBridge，
+	// 但它会在 warmup 以及后续放得下的轮次重新切回原生 WS 并直写原始帧，因此
+	// 不能按 useHTTPBridge 放行；只有确认全程无 WS 腿的 HTTP bridge 保持可用。
+	httpBridgeOnly := codexV2WSv2HTTPBridgeOnly(useHTTPBridge, ingressMode, wsDecision.Transport)
+	if err := codexV2WSv2GuardError(c, httpBridgeOnly); err != nil {
+		return err
+	}
 	turnState := strings.TrimSpace(c.GetHeader(openAIWSTurnStateHeader))
 	stateStore := s.getOpenAIWSStateStore()
 	groupID := getOpenAIGroupIDFromContext(c)
@@ -1214,14 +1230,18 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 		traffic.AddIngressBodyBytes(ingressBodyBytes)
 		turnStart := time.Now()
 		wroteDownstream := false
-		if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(payload), s.openAIWSWriteTimeout()); err != nil {
+		wirePayload, policyErr := nativeCodexPolicy.Prepare(payload)
+		if policyErr != nil {
+			return nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, codexV2ClientPolicyErrorMessage(policyErr), policyErr)
+		}
+		if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(wirePayload), s.openAIWSWriteTimeout()); err != nil {
 			return nil, wrapOpenAIWSIngressTurnError(
 				"write_upstream",
 				fmt.Errorf("write upstream websocket request: %w", err),
 				false,
 			)
 		}
-		traffic.AddUpstreamRequestBodyBytes(payloadBytes)
+		traffic.AddUpstreamRequestBodyBytes(len(wirePayload))
 		if debugEnabled {
 			logOpenAIWSModeDebug(
 				"ingress_ws_turn_request_sent account_id=%d turn=%d conn_id=%s payload_bytes=%d",

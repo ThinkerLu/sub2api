@@ -2,6 +2,7 @@ package service
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 const (
@@ -28,7 +30,22 @@ const openAIWSHTTPBridgeToolStateContextKey = "openai_ws_http_bridge_tool_state"
 
 type openAIWSHTTPBridgeToolState struct {
 	ClientMapping apicompat.ResponsesClientToolMapping
-	LoweredTools  json.RawMessage
+	// ClientTools 保存连接级“客户端原始形态”的顶层 tools 声明（保留
+	// collaboration message.encrypted）。
+	ClientTools json.RawMessage
+	// ClientAdditionalTools 保存客户端在 input[].additional_tools[] 里的原始声明；
+	// 实际安装版 Codex 0.158 的 collaboration 就挂在这里。两个载体一起构成“客户端
+	// 当前声明”，续帧省略声明时按本次实际选中的账号重新推导，避免上一账号派生出的
+	// 形态（已去标记或已摊平）泄漏到另一个账号，也避免声明静默消失。
+	ClientAdditionalTools json.RawMessage
+	// LoweredTools 是顶层声明按当前账号派生的出站形态（已摊平/降级）。
+	LoweredTools json.RawMessage
+	// LoweredAdditionalTools 是 Lite 载体按当前账号派生的出站形态。
+	LoweredAdditionalTools json.RawMessage
+	// CodexV2ParentPlaintextSchema 是 LoweredTools 的同源派生元数据：该声明在
+	// 出站给父端时移除了 collaboration message.encrypted 标记。它只作诊断与回归
+	// 断言使用；每次尝试都会按实际账号重新推导并覆盖，绝不跨账号沿用。
+	CodexV2ParentPlaintextSchema bool
 }
 
 func openAIWSHTTPBridgeToolStateFromContext(c *gin.Context) (openAIWSHTTPBridgeToolState, bool) {
@@ -44,7 +61,10 @@ func setOpenAIWSHTTPBridgeToolState(c *gin.Context, state openAIWSHTTPBridgeTool
 	if c == nil {
 		return
 	}
+	state.ClientTools = append(json.RawMessage(nil), state.ClientTools...)
+	state.ClientAdditionalTools = append(json.RawMessage(nil), state.ClientAdditionalTools...)
 	state.LoweredTools = append(json.RawMessage(nil), state.LoweredTools...)
+	state.LoweredAdditionalTools = append(json.RawMessage(nil), state.LoweredAdditionalTools...)
 	c.Set(openAIWSHTTPBridgeToolStateContextKey, state)
 }
 
@@ -57,6 +77,18 @@ func decodeOpenAIWSHTTPBridgeLoweredTools(raw json.RawMessage) []any {
 		return nil
 	}
 	return tools
+}
+
+// decodeOpenAIWSHTTPBridgeRawItems 解析连接里保存的原始 JSON 项数组。
+func decodeOpenAIWSHTTPBridgeRawItems(raw json.RawMessage) []json.RawMessage {
+	if len(json.RawMessage(bytes.TrimSpace(raw))) == 0 {
+		return nil
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil
+	}
+	return items
 }
 
 func openAIWSHTTPBridgeRawField(body []byte, name string) (json.RawMessage, bool) {
@@ -89,6 +121,21 @@ func openAIWSHTTPBridgeToolUpstreamName(account *Account) string {
 		return "Grok WS HTTP bridge"
 	}
 	return "OpenAI WS HTTP bridge"
+}
+
+// writeCodexV2WSBridgePolicyError 把 Codex V2 的本地策略拒绝以固定文案错误帧
+// 写给 WS 客户端。文案不包含请求正文；失败时由调用方按原错误返回。
+func writeCodexV2WSBridgePolicyError(c *gin.Context, writeClientMessage func([]byte) error, err error) {
+	if writeClientMessage == nil {
+		return
+	}
+	MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
+	MarkOpsLocalClientRejection(c)
+	message := codexV2ClientPolicyErrorMessage(err)
+	clientError := buildOpenAIWSHTTPBridgeErrorEvent(http.StatusBadRequest, message)
+	if writeErr := writeClientMessage(clientError); writeErr == nil {
+		markOpenAIWSClientVisibleFailure(c, "error", clientError)
+	}
 }
 
 // ResolveOpenAIWSClientFirstMessageTimeout returns the first-message inactivity window.
@@ -530,10 +577,81 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	if account.Platform == PlatformGrok {
 		grokIntentSourceBody = append([]byte(nil), body...)
 	}
+	// Codex V2 分组策略：WS 入站 → HTTP bridge 的每一轮都按连接级固定的分组快照
+	// 处理（决策在首次触达时固定，不逐帧重读）。父端移除 collaboration message 的
+	// encrypted 标记，子端把明文 agent_message 换成普通 user 消息；无法确认明文时
+	// 在向上游写入前 fail-closed。
+	//
+	// 续帧省略工具声明时，必须用连接保存的“客户端原始声明”重建本帧，再按本次实际
+	// 选中的账号重新推导上游声明与回程标记：既不能让上一账号派生的形态（已去
+	// encrypted 标记、已摊平）泄漏给另一个账号，也不能让客户端声明静默消失。
+	// 两个载体（顶层 tools[] 与 Lite input[].additional_tools[]）同等对待；显式携带
+	// 任意一个载体的帧都由本帧声明整体替换连接来源。
+	functionToolUpstream := ((account.Platform == PlatformOpenAI || account.UsesNativeCNResponses() || account.ResponsesWSV2Profile() != "") && account.Type == AccountTypeAPIKey) || account.Platform == PlatformGrok
+	policyEnabled := codexV2PolicyEnabledForRequest(c)
+	inheritedState, _ := openAIWSHTTPBridgeToolStateFromContext(c)
+	inheritedLoweredTools := decodeOpenAIWSHTTPBridgeLoweredTools(inheritedState.LoweredTools)
+
+	frameTopLevelRaw, frameHasTopLevelTools := openAIWSHTTPBridgeRawField(body, "tools")
+	frameAdditionalTools := codexV2ClientAdditionalToolsSource(body)
+	frameDeclaredTools := frameHasTopLevelTools || len(frameAdditionalTools) > 0
+
+	clientToolsSource := append(json.RawMessage(nil), inheritedState.ClientTools...)
+	clientAdditionalToolsSource := decodeOpenAIWSHTTPBridgeRawItems(inheritedState.ClientAdditionalTools)
+	if frameDeclaredTools {
+		clientToolsSource = codexV2ClientToolsDeclarationSource(frameTopLevelRaw)
+		clientAdditionalToolsSource = frameAdditionalTools
+	}
+	clientAdditionalToolsRaw := codexV2MarshalRawItems(clientAdditionalToolsSource)
+	hasClientDeclaration := codexV2ToolsDeclarationHasEntries(clientToolsSource) ||
+		len(clientAdditionalToolsSource) > 0
+	hasDerivedDeclaration := codexV2ToolsDeclarationHasEntries(inheritedState.LoweredTools) ||
+		codexV2ToolsDeclarationHasEntries(inheritedState.LoweredAdditionalTools) ||
+		hasResponsesClientToolMapping(inheritedState.ClientMapping)
+
+	// 启用组：续帧省略工具声明时按连接保存的客户端原始声明重建。
+	//
+	// 这里的判据只看“本连接是否启用策略”，不看 functionToolUpstream：后者只决定
+	// 要不要把客户端工具降级成上游认识的 function 形态，而 OpenAI OAuth 的 pure
+	// HTTP bridge 不做降级、却同样需要保存并替换客户端原始声明。把来源状态绑在
+	// functionToolUpstream 上会让 OAuth 显式声明既不保存也不替换，后续省略帧只能
+	// 重放更早一轮的陈旧声明。
+	rehydratingClientTools := policyEnabled && !frameDeclaredTools && hasDerivedDeclaration
+	if rehydratingClientTools {
+		if !hasClientDeclaration {
+			// 上一轮确实向上游声明过工具，但连接里没有可用的客户端原始声明来源，
+			// 无法按本次账号安全重建。任何上游写入之前失败关闭，而不是发出一个
+			// 去标记但回程不补 [] 的半套请求，也不是重放上一账号的陈旧声明。
+			inheritanceErr := newCodexV2UnsafeToolInheritanceError()
+			writeCodexV2WSBridgePolicyError(c, writeClientMessage, inheritanceErr)
+			return nil, inheritanceErr
+		}
+		if codexV2ToolsDeclarationHasEntries(clientToolsSource) {
+			rehydrated, rehydrateErr := sjson.SetRawBytes(body, "tools", clientToolsSource)
+			if rehydrateErr != nil {
+				return nil, fmt.Errorf("rehydrate codex v2 client tool declaration: %w", rehydrateErr)
+			}
+			body = rehydrated
+		}
+		if len(clientAdditionalToolsSource) > 0 {
+			rehydrated, rehydrateErr := codexV2ReinjectAdditionalTools(body, clientAdditionalToolsSource)
+			if rehydrateErr != nil {
+				inheritanceErr := newCodexV2UnsafeToolInheritanceError()
+				writeCodexV2WSBridgePolicyError(c, writeClientMessage, inheritanceErr)
+				return nil, inheritanceErr
+			}
+			body = rehydrated
+		}
+	}
+	policyOutcome, policyErr := applyCodexV2UpstreamRequestPoliciesForAttempt(c, account, body)
+	if policyErr != nil {
+		writeCodexV2WSBridgePolicyError(c, writeClientMessage, policyErr)
+		return nil, policyErr
+	}
+	body = policyOutcome.Body
 	_, grokExplicitToolsField := openAIWSHTTPBridgeRawField(grokIntentSourceBody, "tools")
 	grokExplicitToolIntent := account.Platform == PlatformGrok && hasGrokResponsesToolIntent(grokIntentSourceBody)
 	var clientToolMapping apicompat.ResponsesClientToolMapping
-	functionToolUpstream := ((account.Platform == PlatformOpenAI || account.UsesNativeCNResponses() || account.ResponsesWSV2Profile() != "") && account.Type == AccountTypeAPIKey) || account.Platform == PlatformGrok
 	if functionToolUpstream {
 		if account.Platform == PlatformGrok {
 			body, err = sanitizeGrokResponsesInput(body)
@@ -541,13 +659,19 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 				return nil, fmt.Errorf("sanitize Grok WS HTTP bridge input: %w", err)
 			}
 		}
-		inheritedState, _ := openAIWSHTTPBridgeToolStateFromContext(c)
-		inheritedLoweredTools := decodeOpenAIWSHTTPBridgeLoweredTools(inheritedState.LoweredTools)
+		// 启用组时连接声明已由本帧按实际账号重建（或保持客户端原样），适配器不再使用
+		// 跨账号继承状态；关闭组保持既有继承行为不变。
+		adapterInheritedMapping := inheritedState.ClientMapping
+		adapterInheritedLoweredTools := inheritedLoweredTools
+		if policyEnabled {
+			adapterInheritedMapping = apicompat.ResponsesClientToolMapping{}
+			adapterInheritedLoweredTools = nil
+		}
 		body, clientToolMapping, err = adaptResponsesClientToolsForFunctionUpstreamWithMapping(
 			body,
 			openAIWSHTTPBridgeToolUpstreamName(account),
-			inheritedState.ClientMapping,
-			inheritedLoweredTools,
+			adapterInheritedMapping,
+			adapterInheritedLoweredTools,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("adapt %s client tools: %w", openAIWSHTTPBridgeToolUpstreamName(account), err)
@@ -560,13 +684,35 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			// intent still uses the original pre-sanitization source above.
 			grokIntentSourceBody = append(grokIntentSourceBody[:0], body...)
 		}
+	}
+	// 连接状态写入不以 functionToolUpstream 为前提：后者只决定要不要做 function-tool
+	// 降级，而启用组的客户端原始声明与按账号派生结果在 OpenAI OAuth 的 pure HTTP
+	// bridge 上同样需要保存（否则显式声明既不替换来源，续帧也只能重放更早的陈旧
+	// 声明）。关闭组只有 functionToolUpstream 才写状态，与既有行为一致。
+	if functionToolUpstream || policyEnabled {
 		loweredTools := inheritedState.LoweredTools
 		if currentTools, present := openAIWSHTTPBridgeRawField(body, "tools"); present {
 			loweredTools = currentTools
+		} else if policyEnabled {
+			// 本帧出站没有顶层声明：启用组已按连接来源重建（或客户端本就没有），
+			// 不允许把上一账号/上一轮的派生值留在状态里被后续重放。
+			loweredTools = nil
 		}
+		loweredAdditionalTools := inheritedState.LoweredAdditionalTools
+		if currentAdditionalTools := codexV2ClientAdditionalToolsSource(body); len(currentAdditionalTools) > 0 {
+			loweredAdditionalTools = codexV2MarshalRawItems(currentAdditionalTools)
+		} else if policyEnabled {
+			loweredAdditionalTools = nil
+		}
+		// 标记与声明同源：ParentPlaintextSchema 与上面两个出站派生声明都来自本帧
+		// 实际发给上游的同一份 body（策略改写后、适配器改写后）。
 		setOpenAIWSHTTPBridgeToolState(c, openAIWSHTTPBridgeToolState{
-			ClientMapping: clientToolMapping,
-			LoweredTools:  loweredTools,
+			ClientMapping:                clientToolMapping,
+			ClientTools:                  clientToolsSource,
+			ClientAdditionalTools:        clientAdditionalToolsRaw,
+			LoweredTools:                 loweredTools,
+			LoweredAdditionalTools:       loweredAdditionalTools,
+			CodexV2ParentPlaintextSchema: policyOutcome.ParentPlaintextSchema,
 		})
 	}
 	if account.Platform != PlatformGrok && isOpenAIResponsesLiteWebSocketPayload(payload) {
@@ -993,6 +1139,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 				clientMessage = rewritten
 			}
 		}
+		// Codex V2 父端回程：仅在本次尝试改写过 collaboration schema 时补
+		// encrypted_function_args: []，且只作用于完整明文调用项。
+		clientMessage = applyCodexV2ParentResponsePolicy(c, clientMessage)
 		if !clientDisconnected && !suppressClientMessage {
 			isKeepalive := eventType == "keepalive"
 			stageBeforeSemanticOutput := turn == 1 && account.Platform == PlatformOpenAI && !wroteDownstream

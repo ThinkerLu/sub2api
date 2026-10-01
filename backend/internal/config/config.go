@@ -88,6 +88,7 @@ type Config struct {
 	RateLimit               RateLimitConfig               `mapstructure:"rate_limit"`
 	Pricing                 PricingConfig                 `mapstructure:"pricing"`
 	ModelRegistry           ModelRegistryConfig           `mapstructure:"model_registry"`
+	CodexV2GroupPolicy      CodexV2GroupPolicyConfig      `mapstructure:"codex_v2_group_policy"`
 	Gateway                 GatewayConfig                 `mapstructure:"gateway"`
 	APIKeyAuth              APIKeyAuthCacheConfig         `mapstructure:"api_key_auth_cache"`
 	SubscriptionCache       SubscriptionCacheConfig       `mapstructure:"subscription_cache"`
@@ -690,6 +691,14 @@ type PricingConfig struct {
 type ModelRegistryConfig struct {
 	Enabled bool   `mapstructure:"enabled"`
 	File    string `mapstructure:"file"`
+}
+
+// CodexV2GroupPolicyConfig 控制 Codex MultiAgentV2 跨模型兼容策略文件。
+// 该策略按 API Key 的 GroupID 生效，默认关闭：file 未配置时所有分组都不启用。
+// file 一旦配置，启动时必须可读且校验通过；运行期文件损坏只保留上一有效快照。
+type CodexV2GroupPolicyConfig struct {
+	File                  string `mapstructure:"file"`
+	ReloadIntervalSeconds int    `mapstructure:"reload_interval_seconds"`
 }
 
 type ServerConfig struct {
@@ -2503,6 +2512,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.text_max_body_size", int64(32*1024*1024))
 	viper.SetDefault("model_registry.enabled", false)
 	viper.SetDefault("model_registry.file", "./model-registry/model-registry.yaml")
+	// Codex V2 分组策略默认关闭：file 为空表示所有分组都不启用该策略。
+	viper.SetDefault("codex_v2_group_policy.file", "")
+	viper.SetDefault("codex_v2_group_policy.reload_interval_seconds", 5)
 	viper.SetDefault("gateway.upstream_response_read_max_bytes", DefaultUpstreamResponseReadMaxBytes)
 	viper.SetDefault("gateway.models_list_read_max_bytes", DefaultModelsListReadMaxBytes)
 	viper.SetDefault("gateway.proxy_probe_response_read_max_bytes", int64(1024*1024))
@@ -3319,6 +3331,9 @@ func (c *Config) Validate() error {
 	}
 	if c.ModelRegistry.Enabled && strings.TrimSpace(c.ModelRegistry.File) == "" {
 		return fmt.Errorf("model_registry.file must be configured when model_registry.enabled is true")
+	}
+	if c.CodexV2GroupPolicy.ReloadIntervalSeconds < 0 {
+		return fmt.Errorf("codex_v2_group_policy.reload_interval_seconds must be non-negative")
 	}
 	if c.Gateway.ProxyProbeResponseReadMaxBytes <= 0 {
 		return fmt.Errorf("gateway.proxy_probe_response_read_max_bytes must be positive")

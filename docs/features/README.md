@@ -1,5 +1,8 @@
 # 功能索引
 
+原生 WS 分组兼容：[命名空间替换与原生 WS](2026-10-01-codex-v2-native-ws.md)，
+目标版本 `v0.2.8-probe17-codex-v2-native-ws`（仅备用机探针）。
+
 主服务器交付：[beta3 专用部署和回滚基线](2026-09-26-main-beta3-delivery.md)。
 
 beta3 修复：[Adaptive 上游 WS 轮间保活](2026-09-26-adaptive-ws-upstream-keepalive.md)。
