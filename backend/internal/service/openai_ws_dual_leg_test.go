@@ -245,7 +245,7 @@ func TestDualLegCommitStateNeverBecomesRetrySafeAgain(t *testing.T) {
 	require.Equal(t, int32(openAIWSTurnTerminal), c.state.Load())
 }
 
-func TestDualLegCommittedCacheErrorDoesNotRequestClientReplay(t *testing.T) {
+func TestDualLegCommittedCacheErrorPreservesClientRecoverySignal(t *testing.T) {
 	s, account, ws, httpUp := adaptiveFixture()
 	settled := make(chan *OpenAIForwardResult, 1)
 	server, _ := startAdaptiveServer(t, s, account, &OpenAIWSIngressHooks{AfterTurn: func(_ int, r *OpenAIForwardResult, _ error) { settled <- r }})
@@ -258,7 +258,7 @@ func TestDualLegCommittedCacheErrorDoesNotRequestClientReplay(t *testing.T) {
 	ws.Send(`{"type":"error","error":{"code":"previous_response_not_found","message":"missing after submission"},"usage":{"input_tokens":4,"output_tokens":2}}`)
 	event, err := readPassthroughLifecycleFrame(t, client, time.Second)
 	require.NoError(t, err)
-	require.Equal(t, "upstream_execution_unknown", gjson.GetBytes(event, "error.code").String())
+	require.Equal(t, "previous_response_not_found", gjson.GetBytes(event, "error.code").String())
 	select {
 	case result := <-settled:
 		require.NotNil(t, result)

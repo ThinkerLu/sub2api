@@ -1,5 +1,8 @@
 # 双链路默认生效与移除内存预算
 
+> 2026-10-01 开发修订：明确的上游失败事件不再因 SENT_UNKNOWN 状态被改写。
+> 无上游终止事件时的执行未知保护保留，见 [错误透传](2026-10-01-v0211-upstream-errors.md)。
+
 目标版本：`v0.2.8-beta2-dual-leg-default`。分支：`codex/dual-leg-default-no-budget`，关联实现提交由本分支和发布包 manifest 记录。官方基线保持 `v0.2.8`。
 
 关联功能提交：`2ce748dd3`。发布合并提交和最终镜像摘要见 manifest。
