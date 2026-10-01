@@ -1,5 +1,7 @@
 # 功能索引
 
+WS 首帧诊断：[脱敏写入失败与执行未知日志](2026-10-02-ws-first-write-diagnostics.md)，首次 `v0.2.11-probe20-ws-first-write-diagnostics`，仅备用机发布分支。
+
 HTTP→WS 流量统计：[上游流量统计修复](2026-10-01-http-ws-traffic-accounting.md)，首次 `v0.2.11-probe19-http-ws-traffic`，仅备用机发布分支。
 
 原生 WS 分组兼容：[命名空间替换与原生 WS](2026-10-01-codex-v2-native-ws.md)，

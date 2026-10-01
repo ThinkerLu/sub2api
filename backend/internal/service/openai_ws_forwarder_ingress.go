@@ -913,6 +913,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketFromClient(
 						return ctx.Err()
 					}
 					if result == nil || result.UpstreamTerminalEvent == "" {
+						diagnosticTransport := "http"
+						if useWSTurn {
+							diagnosticTransport = "ws"
+						}
+						logOpenAIWSModeInfo("[DEBUG-ws-first-write] execution_unknown_generated account_id=%d turn=%d turn_id=%s transport=%s payload_bytes=%d error_type=%T error=%q",
+							account.ID, turn, commit.id, diagnosticTransport, len(bridgePayloadRaw),
+							bridgeErr, openAIWSTransportDiagnostic(bridgeErr.Error()))
 						if err := writeClientMessage(openAIWSUnknownExecutionEvent()); err != nil {
 							return err
 						}

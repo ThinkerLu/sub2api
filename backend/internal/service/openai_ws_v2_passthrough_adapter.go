@@ -1306,10 +1306,24 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	upstreamFirstMessageSent := false
 	currentTraffic.Load().AddIngressBodyBytes(len(firstClientMessage))
 	firstWriteCtx, cancelFirstWrite := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
+	firstWriteStarted := time.Now()
 	openAIWSCommitFromContext(ctx).advance(openAIWSTurnSentUnknown)
 	firstWriteErr := wireUpstreamFrameConn.WriteFrame(firstWriteCtx, coderws.MessageText, firstClientMessage)
+	firstWriteContextErr := firstWriteCtx.Err()
 	cancelFirstWrite()
 	if firstWriteErr != nil {
+		turnID := "-"
+		if commit := openAIWSCommitFromContext(ctx); commit != nil {
+			turnID = commit.id
+		}
+		closeStatus, closeReason := summarizeOpenAIWSReadCloseError(firstWriteErr)
+		logOpenAIWSV2Passthrough(
+			"[DEBUG-ws-first-write] write_first_message_fail account_id=%d model=%s turn_id=%s payload_bytes=%d elapsed_ms=%d reused=%v single_turn=%v error_type=%T error=%q close_status=%s close_reason=%q write_ctx_error=%q parent_ctx_error=%q",
+			account.ID, normalizeOpenAIWSLogValue(requestModel), turnID, len(firstClientMessage),
+			time.Since(firstWriteStarted).Milliseconds(), reused, hooks != nil && hooks.adaptiveSingleTurn,
+			firstWriteErr, openAIWSTransportDiagnostic(firstWriteErr.Error()), closeStatus,
+			openAIWSTransportDiagnostic(closeReason), fmt.Sprint(firstWriteContextErr), fmt.Sprint(ctx.Err()),
+		)
 		return wrapOpenAIWSIngressTurnError(
 			"write_upstream",
 			fmt.Errorf("write first upstream websocket request: %w", firstWriteErr),
