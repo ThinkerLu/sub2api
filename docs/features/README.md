@@ -11,6 +11,7 @@ beta3 修复：[Adaptive 上游 WS 轮间保活](2026-09-26-adaptive-ws-upstream
 
 | 功能 | 文档 | 首次发布 |
 | --- | --- | --- |
+| v0.2.11 整合与 WS 上游错误透传 | [上游版本与错误透传](2026-10-01-v0211-upstream-errors.md) | v0.2.11-beta1-upstream-errors（已合入发布分支，未发布） |
 | 仪表盘流量趋势 | [流量趋势](2026-09-25-traffic-trend-dashboard.md) | v0.2.9-traffic-trend-dashboard |
 | 目标模型思考回传 | [思考回传](2026-09-26-target-thinking-replay.md) | v0.2.8-beta1-dual-leg-thinking-ws |
 | GPT 阈值选路 | [大小判据](2026-09-26-gpt-ws-threshold-routing.md) | v0.2.8-beta1-dual-leg-thinking-ws |
