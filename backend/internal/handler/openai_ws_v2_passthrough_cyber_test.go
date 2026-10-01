@@ -24,6 +24,7 @@ type openAIWSPassthroughHandlerHarness struct {
 	serverURL      string
 	accountRepo    *openAIWSUsageHandlerAccountRepoStub
 	usageRepo      *openAIWSUsageHandlerUsageLogRepoStub
+	handler        *OpenAIGatewayHandler
 	clientConn     *coderws.Conn
 	handlerDone    <-chan struct{}
 	moderationRepo *contentModerationHandlerTestRepo
@@ -31,7 +32,7 @@ type openAIWSPassthroughHandlerHarness struct {
 	apiKey         *service.APIKey
 }
 
-func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, configure ...func(*config.Config, *service.Account)) *openAIWSPassthroughHandlerHarness {
+func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, options ...any) *openAIWSPassthroughHandlerHarness {
 	t.Helper()
 	gatewayCache := testutil.NewRedisGatewayCache(t)
 
@@ -40,6 +41,13 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, conf
 		service.SettingKeyCyberSessionBlockEnabled:    "true",
 		service.SettingKeyCyberSessionBlockTTLSeconds: "60",
 	}}
+	for _, option := range options {
+		if overrides, ok := option.(map[string]string); ok {
+			for key, value := range overrides {
+				settingRepo.values[key] = value
+			}
+		}
+	}
 	moderationRepo := &contentModerationHandlerTestRepo{}
 	moderationSvc := service.NewContentModerationService(settingRepo, moderationRepo, nil, nil, nil, nil, nil, nil)
 	settingSvc := service.NewSettingService(settingRepo, nil)
@@ -73,8 +81,14 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, conf
 	cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
 	cfg.Gateway.OpenAIWS.IngressInterTurnIdleTimeoutSeconds = 3
 
-	for _, apply := range configure {
-		apply(cfg, &account)
+	for _, option := range options {
+		switch apply := option.(type) {
+		case func(*config.Config, *service.Account):
+			apply(cfg, &account)
+		case map[string]string:
+		default:
+			t.Fatalf("unsupported harness option %T", option)
+		}
 	}
 	accountRepo := &openAIWSUsageHandlerAccountRepoStub{account: account}
 	usageRepo := &openAIWSUsageHandlerUsageLogRepoStub{created: make(chan *service.UsageLog, 16)}
@@ -99,6 +113,7 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, conf
 
 	apiKey := &service.APIKey{
 		ID:      1851,
+		UserID:  1751,
 		Name:    "ws-cyber-key",
 		Key:     "sk-handler-cyber-test",
 		GroupID: &groupID,
@@ -131,6 +146,7 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, conf
 		serverURL:      handlerServer.URL,
 		accountRepo:    accountRepo,
 		usageRepo:      usageRepo,
+		handler:        h,
 		clientConn:     clientConn,
 		handlerDone:    handlerDone,
 		moderationRepo: moderationRepo,

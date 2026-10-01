@@ -1339,17 +1339,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		UpstreamConn:       trafficUpstreamFrameConn,
 		FirstClientMessage: firstClientMessage,
 		Options: openaiwsv2.RelayOptions{
-			SingleTurn:              hooks != nil && hooks.adaptiveSingleTurn,
-			SingleTurnErrorTerminal: openAIWSCommitFromContext(ctx) != nil,
-			TransformClientEvent: func(kind coderws.MessageType, payload []byte) []byte {
-				if openAIWSCommitFromContext(ctx) != nil && kind == coderws.MessageText {
-					event := gjson.GetBytes(payload, "type").String()
-					if (event == "error" || event == "response.failed") && GetOpsCyberPolicy(c) == nil {
-						return openAIWSUnknownExecutionEvent()
-					}
-				}
-				return payload
-			},
+			SingleTurn:                 hooks != nil && hooks.adaptiveSingleTurn,
+			SingleTurnErrorTerminal:    openAIWSCommitFromContext(ctx) != nil,
 			RetainUpstreamOnSingleTurn: retained != nil,
 			WriteTimeout:               s.openAIWSWriteTimeout(),
 			FirstTurnStartedAt:         firstTurnStartedAt,

@@ -515,7 +515,8 @@ func TestAdaptiveWarmupFailureDoesNotStartHTTP(t *testing.T) {
 	defer cancel()
 	_, event, err := client.Read(ctx)
 	require.NoError(t, err)
-	require.Equal(t, "upstream_execution_unknown", gjson.GetBytes(event, "error.code").String())
+	require.Equal(t, "response.failed", gjson.GetBytes(event, "type").String())
+	require.Equal(t, "invalid_request_error", gjson.GetBytes(event, "response.error.code").String())
 	require.Empty(t, httpUp.snapshot())
 	_ = client.CloseNow()
 }

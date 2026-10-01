@@ -126,7 +126,7 @@ var openAIWSGPTThresholdModels = map[string]struct{}{
 	"gpt-5.2": {}, "gpt-5.3": {}, "gpt-5.3-codex": {}, "gpt-5.3-codex-spark": {},
 	"gpt-5.4": {}, "gpt-5.4-mini": {}, "gpt-5.4-nano": {}, "gpt-5.5": {},
 	"gpt-5.5-pro": {}, "gpt-5.6-sol": {}, "gpt-5.6-terra": {}, "gpt-5.6-luna": {},
-	"gpt-6-astra": {}, "gpt-6-sol": {}, "gpt-6-luna": {},
+	"gpt-6-astra": {}, "gpt-6-sol": {}, "gpt-6-luna": {}, "gpt-6.1-sol": {},
 	"gpt-6": {}, "gpt-5.6": {}, "gpt-5-mini": {}, "gpt-5-nano": {}, "gpt-5-pro": {},
 	"gpt-5-codex": {}, "gpt-5.1-codex": {}, "gpt-5.1-codex-mini": {}, "gpt-5.1-codex-max": {},
 	"gpt-5.2-codex": {}, "gpt-5.2-pro": {}, "gpt-5.4-pro": {},
@@ -817,9 +817,6 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			return nil
 		}
 		clientMessage := buildOpenAIWSHTTPBridgeFailedEvent(responseID, originalModel, bareErrorPayload, bareErrorMessage)
-		if rewritten, changed := sanitizeOpenAICapacityShedErrorCodeForClient(clientMessage); changed {
-			clientMessage = rewritten
-		}
 		messages := append(pendingClientMessages, clientMessage)
 		pendingClientMessages = nil
 		pendingClientMessageBytes = 0
@@ -888,13 +885,11 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if openAIWSCommitFromContext(ctx) != nil && (eventType == "error" || eventType == "response.failed") {
 			upstreamTerminalEvent = eventType
 			s.handleOpenAIWSFailureAccountSideEffects(ctx, account, actualModel, resp.Header, upstreamMessage)
-			clientEvent := openAIWSUnknownExecutionEvent()
-			if markOpenAICyberPolicyEvent(c, upstreamMessage, http.StatusOK, &usage) {
-				clientEvent = upstreamMessage
-			}
-			if err := writeClientMessage(clientEvent); err != nil {
+			markOpenAICyberPolicyEvent(c, upstreamMessage, http.StatusOK, &usage)
+			if err := writeClientMessage(upstreamMessage); err != nil {
 				return resultWithUsage(), err
 			}
+			markOpenAIWSClientVisibleFailure(c, eventType, upstreamMessage)
 			return resultWithUsage(), errors.New("upstream HTTP stream failed after submission")
 		}
 		if eventType == "error" || eventType == "response.failed" {
@@ -983,16 +978,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			}
 		}
 
-		// 客户端写出副本改写容量降载码：Codex 对 error/response.failed 中的
-		// server_is_overloaded / slow_down 判致命并终止会话，改写后走客户端内置
-		// 重试。账号状态与终止事件判定（下方 handleOpenAIWSTerminalTransientFailure）
-		// 仍使用未改写的 upstreamMessage。
 		clientMessage := upstreamMessage
-		if eventType == "error" || eventType == "response.failed" {
-			if rewritten, changed := sanitizeOpenAICapacityShedErrorCodeForClient(clientMessage); changed {
-				clientMessage = rewritten
-			}
-		}
 		if !clientDisconnected && !suppressClientMessage {
 			isKeepalive := eventType == "keepalive"
 			stageBeforeSemanticOutput := turn == 1 && account.Platform == PlatformOpenAI && !wroteDownstream
