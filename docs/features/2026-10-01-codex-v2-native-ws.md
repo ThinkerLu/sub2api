@@ -1,5 +1,13 @@
 # Codex V2 原生 WS 命名空间替换
 
+## 2026-10-02 备用机分支迁入
+
+probe18 来源提交 `f968cc1d2` 已通过合并提交 `92514e552` 迁入
+`codex/cc-probe18-20-import`，随后按新流程合入 `codex/release-sub2api-cc`。
+下文“不合入发布分支”均指不直接合入正式发布分支 `codex/release-sub2api`。
+迁入保留历史实现与诊断，未重新构建或部署；来源核对与本轮验证见
+`docs/operations/2026-10-02-cc-release-import.md`。
+
 ## 发布分支同步（probe18）
 
 按用户要求将 `codex/release-sub2api` 的 `60a84dbbd` 合入本开发分支。
