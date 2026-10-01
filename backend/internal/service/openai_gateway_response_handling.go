@@ -658,6 +658,15 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				line = "data: " + data
 				eventType = effectiveOpenAISSEEventType(dataBytes, eventType)
 			}
+			// Codex V2 父端回程：仅当本次尝试移除了 collaboration message 的
+			// encrypted 标记且 message 已确认明文，才给完整 function_call 项补
+			// encrypted_function_args: []；未知字段与 delta 事件保持原样。
+			if markedData := applyCodexV2ParentResponsePolicy(c, dataBytes); !bytes.Equal(markedData, dataBytes) {
+				dataBytes = markedData
+				data = string(markedData)
+				line = "data: " + data
+				eventType = effectiveOpenAISSEEventType(dataBytes, eventType)
+			}
 			if sanitizedData, sanitized := sanitizeOpenAIResponseFailedEventForClient(
 				dataBytes,
 				eventType,
@@ -1663,6 +1672,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 		return nil, fmt.Errorf("restore OpenAI namespace response: %w", err)
 	}
 	body = restoreCodexToolNamesFromContext(c, body)
+	body = applyCodexV2ParentResponsePolicy(c, body)
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	// Codex 协议要求 /responses/compact JSON 响应携带 x-codex-turn-state
 	// （codex-api/src/endpoint/compact.rs 从响应头捕获），显式回传。
@@ -1763,7 +1773,7 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 			return nil, fmt.Errorf("restore OpenAI namespace response: %w", restoreErr)
 		}
 		restoredBody = restoreCodexToolNamesFromContext(c, restoredBody)
-		body = restoredBody
+		body = applyCodexV2ParentResponsePolicy(c, restoredBody)
 	} else {
 		if originalModel != mappedModel {
 			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, originalModel)

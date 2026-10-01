@@ -2513,6 +2513,11 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Accoun
 	if account == nil {
 		return false
 	}
+	// 本地分组策略拒绝（Codex V2 一期）不是账号或上游故障：不记录调度失败，
+	// 避免健康账号因为客户端请求形态被降级。
+	if !success && len(observedErr) > 0 && IsCodexV2GroupPolicyRejectionError(observedErr[0]) {
+		return false
+	}
 	accountID := account.ID
 	healthTripped := false
 	if s != nil && s.rateLimitService != nil {

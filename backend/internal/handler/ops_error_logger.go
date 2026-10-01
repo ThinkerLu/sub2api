@@ -1252,7 +1252,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				entry.UpstreamStatusCode = &finalStatus
 			}
 		}
-		suppressOpsUpstreamAttributionForLocalModelConfiguration(c, entry)
+		suppressOpsUpstreamAttributionForLocalRejection(c, entry)
 
 		if apiKey != nil {
 			entry.APIKeyID = &apiKey.ID
@@ -1744,6 +1744,14 @@ func applyOpsUpstreamErrorEvents(entry *service.OpsInsertErrorLogInput, events [
 	}
 }
 
+// suppressOpsUpstreamAttributionForLocalRejection 是本请求以本地（非上游）原因收尾时
+// 统一的上游归因收口入口：本地模型配置拒绝整体清空上游归因与事件；本地客户端策略
+// 拒绝只清掉单次上游归因字段，保留按尝试累积的诊断事件。
+func suppressOpsUpstreamAttributionForLocalRejection(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
+	suppressOpsUpstreamAttributionForLocalModelConfiguration(c, entry)
+	suppressOpsUpstreamAttributionForLocalClientRejection(c, entry)
+}
+
 func suppressOpsUpstreamAttributionForLocalModelConfiguration(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
 	if entry == nil || !service.HasOpsClientBusinessLimited(c) || service.OpsClientBusinessLimitedReason(c) != service.OpsClientBusinessLimitedReasonLocalModelConfiguration {
 		return
@@ -1755,6 +1763,19 @@ func suppressOpsUpstreamAttributionForLocalModelConfiguration(c *gin.Context, en
 	entry.UpstreamErrorMessage = nil
 	entry.UpstreamErrorDetail = nil
 	entry.UpstreamErrors = nil
+}
+
+// suppressOpsUpstreamAttributionForLocalClientRejection 清掉以本地请求策略拒绝
+// 收尾的请求条目上的“单次上游归因”字段：同一次请求可能先有一次上游失败并换号，
+// 随后某一账号才命中本地拒绝，那些字段描述的是先前尝试而不是最终结论。
+// 按尝试累积的诊断事件（entry.UpstreamErrors）保留，便于继续追溯。
+func suppressOpsUpstreamAttributionForLocalClientRejection(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
+	if entry == nil || !service.HasOpsLocalClientRejection(c) {
+		return
+	}
+	entry.UpstreamStatusCode = nil
+	entry.UpstreamErrorMessage = nil
+	entry.UpstreamErrorDetail = nil
 }
 
 func getContextLatencyMs(c *gin.Context, key string) *int64 {
@@ -2227,21 +2248,24 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	}
 	upstreamError := hasOpsUpstreamErrorContext(c)
 	accountAuthFailure := hasOpsAccountAuthFailure(c)
+	// 本地请求策略拒绝是本请求的最终结论：先前尝试留下的上游错误上下文只作为
+	// 诊断事件保留，不再决定最终分类与归因。
+	localClientRejection := service.HasOpsLocalClientRejection(c)
+	effectiveUpstreamError := upstreamError && !localModelConfiguration && !localClientRejection
 	if localModelConfiguration && !ingressModelNotAllowed {
 		phase = "routing"
-	} else if accountAuthFailure && !routingCapacityLimited {
+	} else if accountAuthFailure && !routingCapacityLimited && !localClientRejection {
 		phase = "account_auth"
-	} else if upstreamError && !routingCapacityLimited {
+	} else if upstreamError && !routingCapacityLimited && !localClientRejection {
 		phase = "upstream"
 	}
-	if clientBusinessLimited && !upstreamError && !routingCapacityLimited && !localModelConfiguration {
+	if clientBusinessLimited && !effectiveUpstreamError && !routingCapacityLimited && !localModelConfiguration {
 		phase = "auth"
 	}
 	if routingCapacityLimited {
 		phase = "routing"
 	}
 	msg := strings.ToLower(message)
-	effectiveUpstreamError := upstreamError && !localModelConfiguration
 	localClientAuthError := !effectiveUpstreamError && phase == "auth" && isOpsClientAuthError(code, msg)
 	localBusinessLimited := !effectiveUpstreamError && classifyOpsIsBusinessLimited(errType, phase, code, status, message, localClientAuthError)
 	isBusinessLimited = localModelConfiguration || routingCapacityLimited || (clientBusinessLimited && !effectiveUpstreamError) || localBusinessLimited

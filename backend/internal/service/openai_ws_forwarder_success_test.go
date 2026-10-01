@@ -24,7 +24,16 @@ import (
 )
 
 func TestOpenAIGatewayService_Forward_WSv2_SuccessAndBindSticky(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		for _, concat := range []bool{false, true} {
+			t.Run(strconv.FormatBool(stream)+"/concat="+strconv.FormatBool(concat), func(t *testing.T) { testHTTPWSTraffic(t, stream, concat) })
+		}
+	}
+}
+func testHTTPWSTraffic(t *testing.T, stream, concat bool) {
 	gin.SetMode(gin.TestMode)
+	var sentBytes atomic.Int64
+	var requestBytes atomic.Int64
 
 	type receivedPayload struct {
 		Type               string
@@ -45,10 +54,32 @@ func TestOpenAIGatewayService_Forward_WSv2_SuccessAndBindSticky(t *testing.T) {
 			_ = conn.Close()
 		}()
 
+		_, wireRequest, err := conn.ReadMessage()
 		var request map[string]any
-		if err := conn.ReadJSON(&request); err != nil {
+		if err == nil {
+			err = json.Unmarshal(wireRequest, &request)
+		}
+		if err != nil {
 			t.Errorf("read ws request failed: %v", err)
 			return
+		}
+		requestBytes.Store(int64(len(wireRequest)))
+		var pending []byte
+		writeJSON := func(v any) error {
+			data, err := json.Marshal(v)
+			if err != nil {
+				return err
+			}
+			data = append(data, '\n')
+			sentBytes.Add(int64(len(data)))
+			if concat {
+				pending = append(pending, data...)
+				if gjson.GetBytes(data, "type").String() != "response.completed" {
+					return nil
+				}
+				data = pending
+			}
+			return conn.WriteMessage(websocket.TextMessage, data)
 		}
 		requestJSON := requestToJSONString(request)
 		receivedCh <- receivedPayload{
@@ -58,7 +89,7 @@ func TestOpenAIGatewayService_Forward_WSv2_SuccessAndBindSticky(t *testing.T) {
 			Stream:             gjson.Get(requestJSON, "stream").Bool(),
 		}
 
-		if err := conn.WriteJSON(map[string]any{
+		if err := writeJSON(map[string]any{
 			"type": "response.created",
 			"response": map[string]any{
 				"id":    "resp_new_1",
@@ -68,7 +99,7 @@ func TestOpenAIGatewayService_Forward_WSv2_SuccessAndBindSticky(t *testing.T) {
 			t.Errorf("write response.created failed: %v", err)
 			return
 		}
-		if err := conn.WriteJSON(map[string]any{
+		if err := writeJSON(map[string]any{
 			"type": "response.completed",
 			"response": map[string]any{
 				"id":    "resp_new_1",
@@ -144,9 +175,14 @@ func TestOpenAIGatewayService_Forward_WSv2_SuccessAndBindSticky(t *testing.T) {
 	}
 
 	body := []byte(`{"model":"gpt-5.1","stream":false,"previous_response_id":"resp_prev_1","input":[{"type":"input_text","text":"hello"}]}`)
-	result, err := svc.Forward(context.Background(), c, account, body)
+	traffic := NewUsageTrafficCounter()
+	ctx := WithUsageTrafficCounter(context.Background(), traffic)
+	body = []byte(strings.Replace(string(body), `"stream":false`, `"stream":`+strconv.FormatBool(stream), 1))
+	result, err := svc.Forward(ctx, c, account, body)
 	require.NoError(t, err)
 	require.NotNil(t, result)
+	require.Equal(t, requestBytes.Load(), traffic.Snapshot().UpstreamRequestBodyBytes)
+	require.Equal(t, sentBytes.Load(), traffic.Snapshot().UpstreamResponseBodyBytes)
 	require.Equal(t, 12, result.Usage.InputTokens)
 	require.Equal(t, 7, result.Usage.OutputTokens)
 	require.Equal(t, 3, result.Usage.CacheReadInputTokens)
@@ -158,7 +194,7 @@ func TestOpenAIGatewayService_Forward_WSv2_SuccessAndBindSticky(t *testing.T) {
 	require.Equal(t, "response.create", received.Type)
 	require.Equal(t, "resp_prev_1", received.PreviousResponseID)
 	require.True(t, received.StreamExists, "WS 请求应携带 stream 字段")
-	require.False(t, received.Stream, "应保持客户端 stream=false 的原始语义")
+	require.Equal(t, stream, received.Stream, "应保持客户端 stream=false 的原始语义")
 
 	store := svc.getOpenAIWSStateStore()
 	mappedAccountID, getErr := store.GetResponseAccount(context.Background(), groupID, "resp_new_1")
@@ -169,7 +205,9 @@ func TestOpenAIGatewayService_Forward_WSv2_SuccessAndBindSticky(t *testing.T) {
 	require.NotEmpty(t, connID)
 
 	responseBody := rec.Body.Bytes()
-	require.Equal(t, "resp_new_1", gjson.GetBytes(responseBody, "id").String())
+	if !stream {
+		require.Equal(t, "resp_new_1", gjson.GetBytes(responseBody, "id").String())
+	}
 }
 
 func TestOpenAIGatewayService_Forward_WSv2_UsesPatchedBodyAfterValidationDecode(t *testing.T) {

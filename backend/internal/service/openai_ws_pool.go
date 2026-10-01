@@ -239,7 +239,14 @@ func (l *openAIWSConnLease) ReadMessageWithContextTimeout(ctx context.Context, t
 	if err != nil {
 		return nil, err
 	}
-	return conn.readMessageWithContextTimeout(ctx, timeout)
+	message, readErr := conn.readMessageWithContextTimeout(ctx, timeout)
+	if ctx == nil {
+		return message, readErr
+	}
+	if counter, _ := ctx.Value(openAIHTTPWSTrafficKey{}).(*UsageTrafficCounter); counter != nil && readErr == nil {
+		counter.AddUpstreamResponseBodyBytes(len(message))
+	}
+	return message, readErr
 }
 
 func (l *openAIWSConnLease) PingWithTimeout(timeout time.Duration) error {

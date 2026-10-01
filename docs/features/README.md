@@ -1,5 +1,12 @@
 # 功能索引
 
+WS 首帧诊断：[脱敏写入失败与执行未知日志](2026-10-02-ws-first-write-diagnostics.md)，首次 `v0.2.11-probe20-ws-first-write-diagnostics`，仅备用机发布分支。
+
+HTTP→WS 流量统计：[上游流量统计修复](2026-10-01-http-ws-traffic-accounting.md)，首次 `v0.2.11-probe19-http-ws-traffic`，仅备用机发布分支。
+
+原生 WS 分组兼容：[命名空间替换与原生 WS](2026-10-01-codex-v2-native-ws.md)，
+目标版本 `v0.2.8-probe17-codex-v2-native-ws`（仅备用机探针）。
+
 主服务器交付：[beta3 专用部署和回滚基线](2026-09-26-main-beta3-delivery.md)。
 
 beta3 修复：[Adaptive 上游 WS 轮间保活](2026-09-26-adaptive-ws-upstream-keepalive.md)。
